@@ -222,8 +222,30 @@ async def state(body: Credentials):
         state = room['state']
         if state is not None and not is_host:
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
-        return {'host_name': room['host_name'], 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'name': p['name'], 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
+        return {'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
 
+
+class ManagePlayer(Credentials):
+    player_id: str = Field(max_length=64)
+    action: Literal['kick', 'transfer']
+
+@app.post('/api/manage-player')
+async def manage_player(body: ManagePlayer):
+    async with lock:
+        room = get_room(body.code)
+        if not authenticate(room, body.token):
+            raise HTTPException(403, 'Только ведущий управляет участниками')
+        target = next((token for token, player in room['players'].items() if player.get('public_id') == body.player_id), None)
+        if not target:
+            raise HTTPException(404, 'Игрок уже вышел из комнаты')
+        player = room['players'].pop(target)
+        room['ready'].pop(target, None)
+        if body.action == 'transfer':
+            old_token, old_name = room['host'], room['host_name']
+            room['players'][old_token] = {'name': old_name, 'seen': time.monotonic(), 'public_id': secrets.token_urlsafe(12), 'camera_id': room.get('host_camera_id', secrets.token_hex(12))}
+            room['host_camera_id'] = player.get('camera_id', secrets.token_hex(12))
+            room['host'], room['host_name'] = target, player['name']
+        return {'ok': True}
 
 @app.post('/api/ready')
 async def set_ready(body: Credentials):
