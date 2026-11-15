@@ -6,6 +6,7 @@ import QuizGame from './QuizGame.jsx'
 import WritingGame from './WritingGame.jsx'
 import PartyRound from './PartyRound.jsx'
 import NewGames from './NewGames.jsx'
+import VideoCall from './VideoCall.jsx'
 import './style.css'
 
 const cards = [
@@ -60,6 +61,6 @@ function App(){const [room,setRoom]=useState(readSession);const [data,setData]=u
  async function writingAction(action,body){return act(async()=>{await api(action==='next'?'writing-next':`writing/${action}`,{code:room.code,token:room.token,...body});revision.current++;setData(await api('state',{code:room.code,token:room.token}))})}
  async function quizAction(action,body){return act(async()=>{await api(`quiz/${action}`,{code:room.code,token:room.token,...body});revision.current++;setData(await api('state',{code:room.code,token:room.token}))})}
  async function detectiveAction(action,body){try{setError('');await api(`detective/${action}`,{code:room.code,token:room.token,...body});revision.current++;setData(await api('state',{code:room.code,token:room.token}))}catch(e){setError(e.message)}}
- return <Routes><Route path="/" element={<Home room={room} create={create} busy={busy} error={error}/>}/><Route path="/create" element={room?<Navigate to={`/lobby/${room.code}`} replace/>:<Create room={room} create={create} busy={busy} error={error}/>}/><Route path="/join" element={<Join room={room} join={join} busy={busy} error={error}/>}/><Route path="/lobby/:code" element={<Guard room={room}><Lobby room={room} data={data} loading={loading} error={error} leave={leave} start={start} busy={busy}/></Guard>}/><Route path="/lobby/:code/game/:gameId" element={<Guard room={room}><GameRoute room={room} data={data} back={back} detectiveAction={detectiveAction} quizAction={quizAction} writingAction={writingAction} partyAction={partyAction} error={error} send={send} busy={busy}/></Guard>}/><Route path="*" element={<Navigate to="/" replace/>}/></Routes>
+ return <><Routes><Route path="/" element={<Home room={room} create={create} busy={busy} error={error}/>}/><Route path="/create" element={room?<Navigate to={`/lobby/${room.code}`} replace/>:<Create room={room} create={create} busy={busy} error={error}/>}/><Route path="/join" element={<Join room={room} join={join} busy={busy} error={error}/>}/><Route path="/lobby/:code" element={<Guard room={room}><Lobby room={room} data={data} loading={loading} error={error} leave={leave} start={start} busy={busy}/></Guard>}/><Route path="/lobby/:code/game/:gameId" element={<Guard room={room}><GameRoute room={room} data={data} back={back} detectiveAction={detectiveAction} quizAction={quizAction} writingAction={writingAction} partyAction={partyAction} error={error} send={send} busy={busy}/></Guard>}/><Route path="*" element={<Navigate to="/" replace/>}/></Routes>{room&&data?.video&&<VideoCall key={data.video.room} video={data.video} lobbyCode={room.code}/>}</>
 }
 createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>)
