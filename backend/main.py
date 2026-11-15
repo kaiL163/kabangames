@@ -24,12 +24,15 @@ class Credentials(BaseModel):
     code: str = Field(max_length=4)
     token: str = Field(max_length=128)
 
+class Create(BaseModel):
+    name: str = Field(max_length=20)
+
 class Join(BaseModel):
     code: str = Field(max_length=4)
     name: str = Field(max_length=20)
 
 class GameState(BaseModel):
-    game_id: str = Field(pattern='^(quiz|croc|truth|who)$')
+    game_id: str = Field(pattern='^(quiz|croc|truth|who|finish|twotruths|screenwriter|emoji|truefalse|words|cinema|filmguess|carquiz|adultquiz)$')
     host_prompt: str = Field(default='', max_length=500)
     host_answer: str = Field(default='', max_length=500)
     title: str = Field(max_length=80)
@@ -78,7 +81,10 @@ async def health():
     return {'ok': True}
 
 @app.post('/api/create')
-async def create():
+async def create(body: Create):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, 'Введите имя ведущего')
     async with lock:
         prune()
         if len(rooms) >= 5000:
@@ -88,8 +94,8 @@ async def create():
             if code not in rooms:
                 break
         token = secrets.token_urlsafe(32)
-        rooms[code] = {'host': token, 'players': {}, 'state': None, 'detective': None, 'updated': time.monotonic()}
-        return {'code': code, 'token': token, 'host': True}
+        rooms[code] = {'host': token, 'host_name': name, 'players': {}, 'state': None, 'detective': None, 'updated': time.monotonic()}
+        return {'code': code, 'token': token, 'host': True, 'name': name}
 
 @app.post('/api/join')
 async def join(body: Join):
@@ -115,7 +121,7 @@ async def state(body: Credentials):
         state = room['state']
         if state is not None and not is_host:
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
-        return {'players': [p['name'] for p in room['players'].values()], 'state': state, 'detective': detective_view(room['detective']), 'active_game': 'detective' if room['detective'] is not None else (state['game_id'] if state else None)}
+        return {'host_name': room['host_name'], 'players': [p['name'] for p in room['players'].values()], 'state': state, 'detective': detective_view(room['detective']), 'active_game': 'detective' if room['detective'] is not None else (state['game_id'] if state else None)}
 
 @app.post('/api/update')
 async def update(body: Update):
@@ -188,7 +194,7 @@ async def detective_theory(body: Theory):
         reason = body.reason.strip()
         if not reason:
             raise HTTPException(400, 'Добавьте краткое обоснование')
-        name = 'Ведущий' if is_host else room['players'][body.token]['name']
+        name = room['host_name'] if is_host else room['players'][body.token]['name']
         progress['theories'][body.token] = {'name': name, 'suspect': body.suspect, 'reason': reason}
         return detective_view(progress)
 
@@ -229,6 +235,7 @@ if static.is_dir():
     app.mount('/assets', StaticFiles(directory=static / 'assets'), name='assets')
     @app.get('/')
     @app.get('/join')
+    @app.get('/create')
     @app.get('/lobby/{code}')
     @app.get('/lobby/{code}/game/{game_id}')
     async def index(code: str = '', game_id: str = ''):
