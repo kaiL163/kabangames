@@ -1,0 +1,57 @@
+name: Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: sbor-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_KNOWN_HOSTS"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Package and deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -eu
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER"
+          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/sbor-release.tar.gz"
+          scp -o BatchMode=yes "$RUNNER_TEMP/sbor-release.tar.gz" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/sbor-release-$GITHUB_SHA.tar.gz"
+          ssh -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$GITHUB_SHA" <<'REMOTE'
+          set -eu
+          revision="$1"
+          case "$revision" in *[!0-9a-f]*|'') exit 1;; esac
+          archive="/tmp/sbor-release-$revision.tar.gz"
+          release="/opt/sbor-releases/$revision"
+          tar -tzf "$archive" > /dev/null
+          mkdir -p "$release"
+          tar -xzf "$archive" -C "$release"
+          cd "$release"
+          docker compose -p sbor up -d --build
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/health > /dev/null; then
+              echo "Site is responding."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Site did not pass its health check." >&2
+          docker compose -p sbor ps
+          exit 1
+          REMOTE
+

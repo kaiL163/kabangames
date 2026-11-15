@@ -1,0 +1,8 @@
+node_modules
+frontend/dist
+dist
+.git
+.openai
+__pycache__
+*.pyc
+.venv
