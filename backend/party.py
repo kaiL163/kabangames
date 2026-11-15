@@ -2,6 +2,10 @@
 import random
 import secrets
 import time
+try:
+    from . import spy_game, reaction
+except ImportError:
+    import spy_game, reaction
 
 WORDS=['Космонавт','Зубная щётка','Пингвин','Самолёт','Пицца','Детектив','Будильник','Мороженое','Рыбалка','Балерина','Пылесос','Дракон','Фотограф','Караоке','Осьминог','Черепаха','Парашют']
 TRUTHS=['Какой у тебя самый странный талант?','Какой момент из детства ты вспоминаешь чаще всего?','Какую песню ты знаешь наизусть, но редко признаёшься?','Что ты давно хочешь попробовать?','Какая твоя самая смешная привычка?','Куда бы ты отправился прямо сейчас?','Что тебя всегда смешит?']
@@ -12,6 +16,8 @@ TITLES={'croc':'Крокодил','truth':'Правда или действие'
 
 def people(room): return {room['host']:room['host_name'],**{k:p['name'] for k,p in room['players'].items()}}
 def start(room,mode):
+    if mode=='spy':return spy_game.start(room)
+    if mode=='reaction':return reaction.start(room)
     if mode not in TITLES: raise ValueError('Игра не найдена')
     minimum=3 if mode in ('twotruths','who') else 2
     if len(people(room))<minimum: raise ValueError(f'Нужно минимум {minimum} игрока, включая ведущего')
@@ -20,6 +26,8 @@ def start(room,mode):
     next_round(room)
 def next_round(room):
     g=room['party']; mode=g['id']
+    if mode=='spy':return spy_game.next_round(room)
+    if mode=='reaction':return reaction.next_round(room)
     if g['phase']!='result': raise ValueError('Дождитесь окончания раунда')
     players=people(room)
     minimum=3 if mode in ('twotruths','who') else 2
@@ -52,12 +60,16 @@ def end_vote(g):
 def update(room):
     g=room.get('party')
     if not g:return
+    if g['id']=='spy':return spy_game.update(room)
+    if g['id']=='reaction':return reaction.update(room)
     if g['phase']=='guess' and time.time()>=g['deadline']:g['phase']='result'
     if g['phase']=='write' and time.time()>=g['deadline']:g['phase']='result'
     if g['phase']=='vote':
         voters=set(g['eligible'])-({g['actor']} if g['id']=='twotruths' else set())
         if time.time()>=g['deadline'] or voters<=set(g['votes']):end_vote(g)
 def action(room,token,kind,value='',facts=None,lie=None):
+    if room['party']['id']=='spy':return spy_game.action(room,token,kind,value)
+    if room['party']['id']=='reaction':return reaction.action(room,token,kind,value)
     update(room);g=room['party'];mode=g['id'];phase=g['phase']
     if token not in g['eligible']: raise ValueError('Вы присоединитесь со следующего раунда')
     if kind=='skip' and (token==g['actor'] or token==room['host']) and mode in ('truth','twotruths') and phase in ('choose','challenge','write'):
@@ -89,6 +101,8 @@ def action(room,token,kind,value='',facts=None,lie=None):
 def view(room,token):
     g=room.get('party')
     if not g:return None
+    if g['id']=='spy':return spy_game.view(room,token)
+    if g['id']=='reaction':return reaction.view(room,token)
     update(room);mode=g['id'];phase=g['phase'];actor=g['actor']
     result={'game_id':mode,'title':g['title'],'instance':g['instance'],'round':g['round'],'phase':phase,'actor':g['eligible'].get(actor),'is_actor':actor==token,'eligible':token in g['eligible'],'remaining':max(0,int(g['deadline']-time.time()+.999)) if g['deadline'] else None,'scores':sorted(g['scores'].values(),key=lambda p:-p['score']),'voted':token in g['votes'],'votes_count':len(g['votes']),'players_count':len(g['eligible']),'story':g['story']}
     if mode=='croc':

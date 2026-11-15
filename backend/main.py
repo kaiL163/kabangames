@@ -135,7 +135,10 @@ async def join(body: Join):
         name = body.name.strip()
         if not name:
             raise HTTPException(400, 'Введите имя')
-        if len(room['players']) >= 16:
+        existing_names = [room['host_name'], *[p['name'] for p in room['players'].values()]]
+        if name.casefold() in {n.casefold() for n in existing_names}:
+            raise HTTPException(400, 'Этот ник уже занят в лобби')
+        if len(room['players']) >= 15:
             raise HTTPException(400, 'Комната заполнена')
         token = secrets.token_urlsafe(32)
         room['players'][token] = {'name': name, 'seen': time.monotonic()}
@@ -375,6 +378,14 @@ static = Path(__file__).resolve().parent / 'static'
 if static.is_dir():
     app.mount('/evidence', StaticFiles(directory=static / 'evidence', check_dir=False), name='evidence')
     app.mount('/assets', StaticFiles(directory=static / 'assets'), name='assets')
+    @app.get('/favicon.svg')
+    async def favicon():
+        return FileResponse(static / 'favicon.svg', media_type='image/svg+xml')
+
+    @app.get('/kaban-logo.svg')
+    async def logo():
+        return FileResponse(static / 'kaban-logo.svg', media_type='image/svg+xml')
+
     @app.get('/')
     @app.get('/join')
     @app.get('/create')
