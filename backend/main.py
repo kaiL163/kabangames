@@ -10,8 +10,14 @@ from pydantic import BaseModel, Field
 
 try:
     from .detective import CASE, ANSWERS, EXPLANATION
+    from . import quiz as quiz_game
+    from . import writing_game
+    from . import party
 except ImportError:
     from detective import CASE, ANSWERS, EXPLANATION
+    import quiz as quiz_game
+    import writing_game
+    import party
 
 app = FastAPI(title="Kaban Games")
 rooms = {}
@@ -41,6 +47,30 @@ class GameState(BaseModel):
 
 class Update(Credentials):
     state: GameState | None
+
+class QuizStart(Credentials):
+    game_id: str = Field(max_length=20)
+
+class QuizAnswer(Credentials):
+    instance: str = Field(max_length=40)
+    choice: int
+    round: int = Field(ge=1)
+
+class WritingAction(Credentials):
+    instance: str = Field(max_length=40)
+    round: int = Field(ge=1)
+    value: str = Field(max_length=200)
+
+class PartyStart(Credentials):
+    game_id: str = Field(max_length=20)
+
+class PartyAction(Credentials):
+    instance: str = Field(max_length=40)
+    round: int = Field(ge=1)
+    action: str = Field(max_length=20)
+    value: str = Field(default='', max_length=200)
+    facts: list[str] | None = Field(default=None, max_length=3)
+    lie: int | None = None
 
 class Inspect(Credentials):
     item_id: str = Field(max_length=30)
@@ -94,7 +124,7 @@ async def create(body: Create):
             if code not in rooms:
                 break
         token = secrets.token_urlsafe(32)
-        rooms[code] = {'host': token, 'host_name': name, 'players': {}, 'state': None, 'detective': None, 'updated': time.monotonic()}
+        rooms[code] = {'host': token, 'host_name': name, 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
         return {'code': code, 'token': token, 'host': True, 'name': name}
 
 @app.post('/api/join')
@@ -121,7 +151,7 @@ async def state(body: Credentials):
         state = room['state']
         if state is not None and not is_host:
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
-        return {'host_name': room['host_name'], 'players': [p['name'] for p in room['players'].values()], 'state': state, 'detective': detective_view(room['detective']), 'active_game': 'detective' if room['detective'] is not None else (state['game_id'] if state else None)}
+        return {'host_name': room['host_name'], 'players': [p['name'] for p in room['players'].values()], 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
 
 @app.post('/api/update')
 async def update(body: Update):
@@ -132,7 +162,116 @@ async def update(body: Update):
             raise HTTPException(403, 'Только ведущий управляет игрой')
         room['state'] = body.state.model_dump() if body.state else None
         room['detective'] = None
+        room['quiz'] = None
+        room['writing'] = None
+        room['party'] = None
         return {'ok': True}
+
+@app.post('/api/quiz/start')
+async def quiz_start(body: QuizStart):
+    async with lock:
+        prune()
+        room = get_room(body.code)
+        if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        try: quiz_game.start(room, body.game_id)
+        except ValueError as error: raise HTTPException(400, str(error))
+        room['state'] = None
+        room['detective'] = None
+        room['writing'] = None
+        room['party'] = None
+        return quiz_game.view(room, body.token)
+
+@app.post('/api/quiz/answer')
+async def quiz_answer(body: QuizAnswer):
+    async with lock:
+        prune()
+        room = get_room(body.code)
+        authenticate(room, body.token)
+        if not room.get('quiz'): raise HTTPException(400, 'Игра не запущена')
+        if body.instance != room['quiz']['instance']: raise HTTPException(409, 'Игра уже сменилась')
+        if body.round != room['quiz']['index'] + 1: raise HTTPException(409, 'Раунд сменился — ответ не принят')
+        try: quiz_game.answer(room, body.token, body.choice)
+        except ValueError as error: raise HTTPException(400, str(error))
+        return quiz_game.view(room, body.token)
+
+@app.post('/api/quiz/next')
+async def quiz_next(body: Credentials):
+    async with lock:
+        prune()
+        room = get_room(body.code)
+        if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий управляет раундами')
+        if not room.get('quiz'): raise HTTPException(400, 'Игра не запущена')
+        quiz_game.finish_if_needed(room)
+        try: quiz_game.next_round(room)
+        except ValueError as error: raise HTTPException(400, str(error))
+        return quiz_game.view(room, body.token)
+
+@app.post('/api/writing/start')
+async def writing_start(body: Credentials):
+    async with lock:
+        prune(); room = get_room(body.code)
+        if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        try: writing_game.start(room)
+        except ValueError as error: raise HTTPException(400, str(error))
+        room['state'] = None; room['detective'] = None; room['quiz'] = None; room['party'] = None
+        return writing_game.view(room, body.token)
+
+@app.post('/api/writing/{action}')
+async def writing_action(action: str, body: WritingAction):
+    async with lock:
+        prune(); room = get_room(body.code); authenticate(room, body.token)
+        game = room.get('writing')
+        if not game: raise HTTPException(400, 'Игра не запущена')
+        if body.instance != game['instance'] or body.round != game['index'] + 1: raise HTTPException(409, 'Раунд сменился')
+        try:
+            if action == 'submit': writing_game.submit(room, body.token, body.value)
+            elif action == 'vote': writing_game.vote(room, body.token, body.value)
+            else: raise HTTPException(404, 'Неизвестное действие')
+        except ValueError as error: raise HTTPException(400, str(error))
+        return writing_game.view(room, body.token)
+
+@app.post('/api/writing-next')
+async def writing_next(body: Credentials):
+    async with lock:
+        prune(); room = get_room(body.code)
+        if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий управляет раундами')
+        if not room.get('writing'): raise HTTPException(400, 'Игра не запущена')
+        writing_game.update(room)
+        try: writing_game.next_round(room)
+        except ValueError as error: raise HTTPException(400, str(error))
+        return writing_game.view(room, body.token)
+
+@app.post('/api/party/start')
+async def party_start(body: PartyStart):
+    async with lock:
+        prune(); room = get_room(body.code)
+        if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        try: party.start(room, body.game_id)
+        except ValueError as error: raise HTTPException(400, str(error))
+        room['state'] = None; room['detective'] = None; room['quiz'] = None; room['writing'] = None
+        return party.view(room, body.token)
+
+@app.post('/api/party/action')
+async def party_action(body: PartyAction):
+    async with lock:
+        prune(); room = get_room(body.code); authenticate(room, body.token)
+        game = room.get('party')
+        if not game: raise HTTPException(400, 'Игра не запущена')
+        if body.instance != game['instance'] or body.round != game['round']: raise HTTPException(409, 'Раунд сменился')
+        try: party.action(room, body.token, body.action, body.value, body.facts, body.lie)
+        except ValueError as error: raise HTTPException(400, str(error))
+        return party.view(room, body.token)
+
+@app.post('/api/party/next')
+async def party_next(body: Credentials):
+    async with lock:
+        prune(); room = get_room(body.code)
+        if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий начинает раунд')
+        if not room.get('party'): raise HTTPException(400, 'Игра не запущена')
+        party.update(room)
+        try: party.next_round(room)
+        except ValueError as error: raise HTTPException(400, str(error))
+        return party.view(room, body.token)
 
 def detective_view(progress):
     if progress is None:
@@ -160,6 +299,9 @@ async def detective_start(body: Credentials):
             raise HTTPException(403, 'Только ведущий начинает дело')
         room['detective'] = {'opened': [], 'result': None, 'theories': {}}
         room['state'] = None
+        room['quiz'] = None
+        room['writing'] = None
+        room['party'] = None
         return detective_view(room['detective'])
 
 @app.post('/api/detective/inspect')
