@@ -5,4 +5,9 @@ services:
       - "${PORT:-8000}:8000"
     environment:
       PORT: 8000
+    volumes:
+      - kaban-data:/data
     restart: unless-stopped
+
+volumes:
+  kaban-data:

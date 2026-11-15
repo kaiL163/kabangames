@@ -1,4 +1,3 @@
-import CameraStrip from './CameraStrip.jsx'
 import React, {useEffect, useState} from 'react'
 
 export default function Detective({caseData, isHost, roomCode, onInspect, onAccuse, onTheory, onRestart, onClose, error}) {
@@ -26,7 +25,7 @@ export default function Detective({caseData, isHost, roomCode, onInspect, onAccu
     try { await onAccuse(answers) } finally { setBusy(false) }
   }
   return <div className="detective-overlay"><div className="detective" role="dialog" aria-modal="true" aria-labelledby="caseTitle">
-    <div className="case-top"><div className="case-brand">KABAN GAMES <span>✳</span> / ДЕТЕКТИВНОЕ АГЕНТСТВО</div><div className="case-top-actions"><span className="case-room">КОД КОМНАТЫ: <strong>{roomCode}</strong></span><button className="case-close" aria-label="Закрыть дело" onClick={onClose}>×</button></div></div><CameraStrip/>
+    <div className="case-top"><div className="case-brand">KABAN GAMES <span>✳</span> / ДЕТЕКТИВНОЕ АГЕНТСТВО</div><div className="case-top-actions"><span className="case-room">КОД КОМНАТЫ: <strong>{roomCode}</strong></span><button className="case-close" aria-label="Закрыть дело" onClick={onClose}>×</button></div></div>
     {!caseData ? <p className="case-loading">Загружаем материалы дела…</p> : <>
       <div className="case-heading"><div><div className="case-label"><span>●</span> ДЕЛО № 01 / {caseData?.result?'ЗАКРЫТО':'ОТКРЫТО'}</div><h2 id="caseTitle">{caseData.title}</h2><p>{caseData.intro}</p></div><div className="case-stamp">МАТЕРИАЛЫ<br/><strong>ДЕЛА</strong><br/>01 / KABAN GAMES</div></div>
       <div className="case-info"><span>◷ 30–45 МИНУТ</span><span>♟ 1–16 ИГРОКОВ</span><span>◎ ИЗУЧЕНО {opened} / {caseData.items.length}</span></div>

@@ -1,9 +1,11 @@
 import asyncio
 import secrets
 import time
+import json
+import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -26,6 +28,40 @@ lock = asyncio.Lock()
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"
 ROOM_LIFETIME = 6 * 60 * 60
 PLAYER_TIMEOUT = 10 * 60
+ROOMS_FILE = Path(os.getenv('ROOMS_FILE', '/data/rooms.json'))
+
+@app.on_event('startup')
+async def load_rooms():
+    try:
+        restored = json.loads(ROOMS_FILE.read_text(encoding='utf-8'))
+        now = time.monotonic()
+        for code, room in restored.items():
+            if time.time() - room.pop('saved_at', 0) <= 24 * 60 * 60:
+                room.setdefault('ready', {})
+                room.setdefault('reactions', [])
+                room.setdefault('scores', {})
+                room.setdefault('video_room', secrets.token_hex(12))
+                room.setdefault('video_password', secrets.token_hex(12))
+                room['updated'] = now
+                for player in room.get('players', {}).values(): player['seen'] = now
+                rooms[code] = room
+    except (OSError, ValueError, TypeError):
+        pass
+
+@app.middleware('http')
+async def persist_rooms(request: Request, call_next):
+    response = await call_next(request)
+    if request.method == 'POST' and request.url.path.startswith('/api/') and request.url.path != '/api/state':
+        try:
+            ROOMS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            snapshot = {code: {**room, 'saved_at': time.time()} for code, room in rooms.items()}
+            temporary = ROOMS_FILE.with_suffix('.' + secrets.token_hex(6) + '.tmp')
+            temporary.write_text(json.dumps(snapshot, ensure_ascii=False), encoding='utf-8')
+            temporary.replace(ROOMS_FILE)
+        except OSError:
+            pass
+    return response
+
 
 class Credentials(BaseModel):
     code: str = Field(max_length=4)
@@ -88,6 +124,31 @@ class Theory(Credentials):
 class Accusation(Credentials):
     answers: dict[str, str]
 
+
+def require_ready(room):
+    connected = [token for token, player in room['players'].items() if time.monotonic() - player['seen'] < 20]
+    if connected and any(not room['ready'].get(token, False) for token in connected):
+        raise HTTPException(409, 'Подождите, пока все игроки отметятся готовыми')
+
+def merged_scores(room):
+    merged = {token: dict(row) for token, row in room.get('scores', {}).items()}
+    for key in ('quiz', 'party', 'writing'):
+        for token, row in (room.get(key) or {}).get('scores', {}).items():
+            total = merged.setdefault(token, {'name': row['name'], 'score': 0})
+            total['score'] += row['score']
+            total['name'] = row['name']
+    return sorted(merged.values(), key=lambda row: -row['score'])
+
+def archive_scores(room):
+    for key in ('quiz', 'party', 'writing'):
+        game = room.get(key)
+        if not game: continue
+        for token, row in game.get('scores', {}).items():
+            total = room['scores'].setdefault(token, {'name': row['name'], 'score': 0})
+            total['name'] = row['name']
+            total['score'] += row['score']
+        room[key] = None
+
 def prune():
     now = time.monotonic()
     for code, room in list(rooms.items()):
@@ -95,6 +156,7 @@ def prune():
             del rooms[code]
         else:
             room['players'] = {key: player for key, player in room['players'].items() if now - player['seen'] < PLAYER_TIMEOUT}
+            room['ready'] = {key: value for key, value in room['ready'].items() if key in room['players']}
 
 def get_room(code):
     room = rooms.get(code.upper())
@@ -130,7 +192,7 @@ async def create(body: Create):
             if code not in rooms:
                 break
         token = secrets.token_urlsafe(32)
-        rooms[code] = {'host': token, 'host_name': name, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
+        rooms[code] = {'host': token, 'host_name': name, 'ready': {}, 'reactions': [], 'scores': {}, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
         return {'code': code, 'token': token, 'host': True, 'name': name}
 
 @app.post('/api/join')
@@ -160,7 +222,29 @@ async def state(body: Credentials):
         state = room['state']
         if state is not None and not is_host:
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
-        return {'host_name': room['host_name'], 'video': {'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [p['name'] for p in room['players'].values()], 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
+        return {'host_name': room['host_name'], 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'name': p['name'], 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
+
+
+@app.post('/api/ready')
+async def set_ready(body: Credentials):
+    async with lock:
+        room = get_room(body.code)
+        is_host = authenticate(room, body.token)
+        if not is_host: room['ready'][body.token] = not room['ready'].get(body.token, False)
+        return {'ready': room['ready'].get(body.token, True)}
+
+class Reaction(Credentials):
+    emoji: str = Field(pattern='^(😂|🔥|👀|👏|❤️|😮)$')
+
+@app.post('/api/reaction')
+async def send_reaction(body: Reaction):
+    async with lock:
+        room = get_room(body.code)
+        is_host = authenticate(room, body.token)
+        name = room['host_name'] if is_host else room['players'][body.token]['name']
+        room['reactions'].append({'id': secrets.token_urlsafe(8), 'name': name, 'emoji': body.emoji, 'at': time.time()})
+        room['reactions'] = [item for item in room['reactions'] if time.time() - item['at'] < 12][-20:]
+        return {'ok': True}
 
 @app.post('/api/update')
 async def update(body: Update):
@@ -169,6 +253,7 @@ async def update(body: Update):
         room = get_room(body.code)
         if not authenticate(room, body.token):
             raise HTTPException(403, 'Только ведущий управляет игрой')
+        archive_scores(room)
         room['state'] = body.state.model_dump() if body.state else None
         room['detective'] = None
         room['quiz'] = None
@@ -182,6 +267,8 @@ async def quiz_start(body: QuizStart):
         prune()
         room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        require_ready(room)
+        archive_scores(room)
         try: quiz_game.start(room, body.game_id, body.rounds)
         except ValueError as error: raise HTTPException(400, str(error))
         room['state'] = None
@@ -220,6 +307,8 @@ async def writing_start(body: WritingStart):
     async with lock:
         prune(); room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        require_ready(room)
+        archive_scores(room)
         try: writing_game.start(room, body.rounds)
         except ValueError as error: raise HTTPException(400, str(error))
         room['state'] = None; room['detective'] = None; room['quiz'] = None; room['party'] = None
@@ -255,6 +344,8 @@ async def party_start(body: PartyStart):
     async with lock:
         prune(); room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        require_ready(room)
+        archive_scores(room)
         try: party.start(room, body.game_id, body.rounds)
         except ValueError as error: raise HTTPException(400, str(error))
         room['state'] = None; room['detective'] = None; room['quiz'] = None; room['writing'] = None
@@ -306,6 +397,7 @@ async def detective_start(body: Credentials):
         room = get_room(body.code)
         if not authenticate(room, body.token):
             raise HTTPException(403, 'Только ведущий начинает дело')
+        require_ready(room)
         room['detective'] = {'opened': [], 'result': None, 'theories': {}}
         room['state'] = None
         room['quiz'] = None
@@ -378,6 +470,7 @@ async def leave(body: Credentials):
             del rooms[body.code.upper()]
         else:
             room['players'].pop(body.token, None)
+            room['ready'].pop(body.token, None)
         return {'ok': True}
 
 static = Path(__file__).resolve().parent / 'static'
