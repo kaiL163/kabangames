@@ -1,6 +1,5 @@
 import asyncio
 import secrets
-import string
 import time
 from pathlib import Path
 
@@ -14,12 +13,12 @@ try:
 except ImportError:
     from detective import CASE, ANSWERS, EXPLANATION
 
-app = FastAPI(title="Сбор")
+app = FastAPI(title="Kaban Games")
 rooms = {}
 lock = asyncio.Lock()
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"
 ROOM_LIFETIME = 6 * 60 * 60
-PLAYER_TIMEOUT = 60
+PLAYER_TIMEOUT = 10 * 60
 
 class Credentials(BaseModel):
     code: str = Field(max_length=4)
@@ -30,6 +29,9 @@ class Join(BaseModel):
     name: str = Field(max_length=20)
 
 class GameState(BaseModel):
+    game_id: str = Field(pattern='^(quiz|croc|truth|who)$')
+    host_prompt: str = Field(default='', max_length=500)
+    host_answer: str = Field(default='', max_length=500)
     title: str = Field(max_length=80)
     prompt: str = Field(max_length=500)
     answer: str = Field(max_length=500)
@@ -109,8 +111,11 @@ async def state(body: Credentials):
     async with lock:
         prune()
         room = get_room(body.code)
-        authenticate(room, body.token)
-        return {'players': [p['name'] for p in room['players'].values()], 'state': room['state'], 'detective': detective_view(room['detective'])}
+        is_host = authenticate(room, body.token)
+        state = room['state']
+        if state is not None and not is_host:
+            state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
+        return {'players': [p['name'] for p in room['players'].values()], 'state': state, 'detective': detective_view(room['detective']), 'active_game': 'detective' if room['detective'] is not None else (state['game_id'] if state else None)}
 
 @app.post('/api/update')
 async def update(body: Update):
@@ -120,8 +125,7 @@ async def update(body: Update):
         if not authenticate(room, body.token):
             raise HTTPException(403, 'Только ведущий управляет игрой')
         room['state'] = body.state.model_dump() if body.state else None
-        if body.state is not None:
-            room['detective'] = None
+        room['detective'] = None
         return {'ok': True}
 
 def detective_view(progress):
@@ -224,5 +228,8 @@ if static.is_dir():
     app.mount('/evidence', StaticFiles(directory=static / 'evidence', check_dir=False), name='evidence')
     app.mount('/assets', StaticFiles(directory=static / 'assets'), name='assets')
     @app.get('/')
-    async def index():
+    @app.get('/join')
+    @app.get('/lobby/{code}')
+    @app.get('/lobby/{code}/game/{game_id}')
+    async def index(code: str = '', game_id: str = ''):
         return FileResponse(static / 'index.html')

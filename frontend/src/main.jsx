@@ -1,113 +1,45 @@
 import React, {useEffect, useRef, useState} from 'react'
 import {createRoot} from 'react-dom/client'
+import {BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams} from 'react-router-dom'
 import {games} from './games.js'
 import Detective from './Detective.jsx'
 import './style.css'
 
 const cards = [
-  ['detective','00 / ДЛЯ СЫЩИКОВ','🕵️','Детективное дело','Соберите улики и раскройте преступление'],
-  ['quiz','01 / ДЛЯ ЛЮБОЗНАТЕЛЬНЫХ','🧠','Викторина','Вопросы, ответы и немного азарта'],
-  ['croc','02 / ДЛЯ АРТИСТОВ','🐊','Крокодил','Покажи слово без единого звука'],
-  ['truth','03 / ДЛЯ СМЕЛЫХ','🔥','Правда или действие','Узнайте друг друга получше'],
-  ['who','04 / ДЛЯ СВОИХ','👀','Кто скорее?','Выбирайте того, кому подходит вопрос'],
+  ['detective','🕵️','Детективное дело','Соберите улики и раскройте преступление'],
+  ['quiz','🧠','Викторина','Вопросы, ответы и немного азарта'],
+  ['croc','🐊','Крокодил','Покажи слово без единого звука'],
+  ['truth','🔥','Правда или действие','Узнайте друг друга получше'],
+  ['who','👀','Кто скорее?','Выбирайте того, кому подходит вопрос'],
 ]
+const SESSION_KEY = 'kaban-room'
 async function api(action, body={}) {
-  const response = await fetch(`/api/${action}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-  const result = await response.json()
-  if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Ошибка соединения')
+  const response=await fetch(`/api/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+  const result=await response.json()
+  if(!response.ok) throw new Error(typeof result.detail==='string'?result.detail:'Не удалось выполнить запрос')
   return result
 }
-function choose(list, previous) {
-  let index = Math.floor(Math.random() * list.length)
-  if (list.length > 1 && index === previous) index = (index + 1) % list.length
-  return index
+function readSession(){try{return JSON.parse(sessionStorage.getItem(SESSION_KEY))}catch{return null}}
+function Logo(){return <Link className="logo kaban-logo" to="/">KABAN<span> ✳ </span>GAMES</Link>}
+function Header({room}){return <header><Logo/><nav>{room&&<Link to={`/lobby/${room.code}`}>Лобби {room.code}</Link>}<Link className="pill" to="/join">Войти по коду ↗</Link></nav></header>}
+function Home({room,create,busy,error}){return <><Header room={room}/><main className="wrap"><section className="hero"><div><div className="eyebrow"><span className="dot"/>ИГРЫ ДЛЯ СВОИХ</div><h1>СОБРАЛИСЬ?<br/><em>ИГРАЕМ.</em></h1><p>Создавай лобби, зови друзей и выбирайте, во что сыграть сегодня.</p><div className="home-actions">{room?<Link className="button" to={`/lobby/${room.code}`}>Вернуться в лобби ↗</Link>:<button className="button" disabled={busy} onClick={create}>{busy?'Создаём…':'Создать лобби ↗'}</button>}<Link className="home-join" to="/join">У меня есть код</Link></div>{error&&<p className="room-error" role="alert">{error}</p>}<span className="home-free">Бесплатно · Без регистрации · В браузере</span></div><div className="art" aria-hidden="true"><div className="art-label">ХОРОШИЙ ВЕЧЕР НАЧИНАЕТСЯ ЗДЕСЬ ↗</div><div className="card one"><small>KABAN GAMES / 01</small><div className="face">✳</div><strong>ВСЕ<br/>СВОИ.</strong></div><div className="card two"><small>KABAN GAMES / 02</small><div className="face">☺</div><strong>ВСЕ<br/>В ИГРЕ.</strong></div><div className="spark">✴</div></div></section><div className="strip"><span>✳ ОДНО ЛОББИ</span><span>✳ НЕСКОЛЬКО ИГР</span><span>✳ ВСЁ БЕСПЛАТНО</span></div><section className="section"><div className="section-head"><div><div className="eyebrow"><span className="dot"/>КАК ЭТО РАБОТАЕТ</div><h2>СНАЧАЛА СБОР.<br/>ПОТОМ ИГРА.</h2></div></div><div className="landing-steps"><p><b>01</b> Создай лобби и получи код.</p><p><b>02</b> Друзья входят по коду с телефонов.</p><p><b>03</b> Ведущий выбирает любую игру в лобби.</p></div></section></main></>}
+function Join({room,join,busy,error}){const [params]=useSearchParams();const [code,setCode]=useState((params.get('code')||'').toUpperCase().slice(0,4));const [name,setName]=useState('');return <><Header room={room}/><main className="page-shell"><Link to="/" className="back-link">← На главную</Link><div className="join-panel"><div className="eyebrow"><span className="dot"/>КОМПАНИЯ ЖДЁТ</div><h1>ВОЙТИ<br/>В ЛОББИ.</h1><p>Введи четырёхбуквенный код от ведущего и своё имя.</p><form onSubmit={e=>{e.preventDefault();join(code,name)}}><label htmlFor="code">Код лобби</label><input id="code" autoComplete="off" autoCapitalize="characters" maxLength={4} value={code} onChange={e=>setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g,''))} placeholder="ABCD" required pattern="[A-Z]{4}"/><label htmlFor="name">Твоё имя</label><input id="name" autoComplete="nickname" maxLength={20} value={name} onChange={e=>setName(e.target.value)} placeholder="Как тебя зовут?" required/><button className="button" disabled={busy}>{busy?'Подключаем…':'Войти в лобби ↗'}</button></form>{error&&<p className="room-error" role="alert">{error}</p>}</div></main></>}
+function Lobby({room,data,loading,error,leave,start,busy}){const [copied,setCopied]=useState(false);const invite=`${location.origin}/join?code=${room.code}`;async function copy(){try{await navigator.clipboard.writeText(invite);setCopied(true)}catch{setCopied(false)}}return <><Header room={room}/><main className="page-shell"><div className="lobby-heading"><div><div className="eyebrow"><span className="dot"/>ОБЩЕЕ ЛОББИ</div><h1>КОМНАТА<br/><em>{room.code}</em></h1><p>Поделись кодом или ссылкой с друзьями.</p><button className="outline-button" onClick={copy}>{copied?'Ссылка скопирована ✓':'Скопировать ссылку ↗'}</button><div className="invite-url">{invite}</div></div><aside className="lobby-people"><div className="eyebrow">В КОМНАТЕ · {(data?.players.length||0)+1}</div><div className="player-row"><span>👑</span><strong>Ведущий</strong><small>ХОСТ</small></div>{data?.players.map((player,index)=><div className="player-row" key={index}><span>☺</span><strong>{player}</strong></div>)}{!data?.players.length&&<p>Пока ждём игроков…</p>}</aside></div>{error&&<p className="room-error" role="alert">{error}</p>}{loading?<p>Подключаемся к лобби…</p>:<><div className="lobby-section"><div><div className="eyebrow"><span className="dot"/>{room.host?'ТВОЙ ВЫБОР':data?.active_game?'ИГРА УЖЕ ИДЁТ':'ЖДЁМ ВЕДУЩЕГО'}</div><h2>{room.host?'ВЫБЕРИ ИГРУ.':data?.active_game?'ПРИСОЕДИНЯЙСЯ.':'СКОРО НАЧНЁМ.'}</h2><p>{room.host?'Выбери игру — все игроки перейдут в неё автоматически.':data?.active_game?'Вернись в игру по кнопке ниже.':'Ведущий выберет игру, и она откроется у всех.'}</p></div></div><div className="grid lobby-games">{cards.map(([id,icon,title,desc],i)=><button key={id} className="game" disabled={!room.host||busy} onClick={()=>start(id)}><span className="num">0{i+1} / KABAN GAMES</span><span className="icon">{icon}</span><h3>{title}</h3><p>{desc}</p><span className="go">{room.host?'↗':'⌛'}</span></button>)}</div></>}{data?.active_game&&<div className="actions"><Link className="button" to={`/lobby/${room.code}/game/${data.active_game}`}>Вернуться в игру ↗</Link></div>}<div className="lobby-bottom"><button className="text-button" onClick={leave}>{room.host?'Закрыть лобби':'Выйти из лобби'}</button></div></main></>}
+function PartyGame({room,data,goLobby,send,busy,error}){const {gameId}=useParams();const state=data?.state;const last=useRef({});if(!state||state.game_id!==gameId)return <div className="game-wait">Загружаем игру…</div>;function next(type='items'){const list=games[gameId][type];let index=Math.floor(Math.random()*list.length);if(list.length>1&&index===last.current[type])index=(index+1)%list.length;last.current[type]=index;const value=list[index];const prompt=Array.isArray(value)?value[0]:value;const answer=Array.isArray(value)?`Ответ: ${value[1]}`:'';send({...state,host_prompt:prompt,host_answer:answer,prompt:gameId==='croc'?'Ведущий показывает слово. Угадайте его!':prompt,answer:''})}return <><Header room={room}/><main className="game-page"><div className="game-bar"><span>ЛОББИ {room.code} / {room.host?'ВЕДУЩИЙ':'ИГРОК'}</span><button className="outline-button" onClick={goLobby}>{room.host?'Завершить игру':'В лобби'}</button></div><div className="game-panel"><div className="eyebrow"><span className="dot"/>ИГРАЕМ ВМЕСТЕ</div><h1>{state.title}</h1><p className="desc">{games[gameId].desc}</p><div className="prompt">{room.host?(state.host_prompt||state.prompt):state.prompt}</div>{state.answer&&<div className="answer">{state.answer}</div>}{room.host?<div className="actions">{gameId==='truth'?<><button className="primary" disabled={busy} onClick={()=>next('truth')}>Правда</button><button className="secondary" disabled={busy} onClick={()=>next('dare')}>Действие</button></>:<><button className="primary" disabled={busy} onClick={()=>next()}>{gameId==='quiz'?'Следующий вопрос':'Следующая карточка'}</button>{gameId==='quiz'&&<button className="secondary" disabled={busy||!state.host_answer} onClick={()=>send({...state,answer:state.host_answer})}>Показать ответ</button>}</>}</div>:<p className="game-hint">Карточками управляет ведущий. Обсуждайте и играйте вместе!</p>}{error&&<p className="room-error" role="alert">{error}</p>}</div></main></>}
+function Guard({room,children}){const {code}=useParams();if(!room||room.code!==code.toUpperCase())return <Navigate to={`/join?code=${encodeURIComponent(code)}`} replace/>;return children}
+function GameRoute({room,data,back,detectiveAction,error,send,busy}){const {gameId}=useParams();if(!cards.some(c=>c[0]===gameId))return <Navigate to={`/lobby/${room.code}`} replace/>;if(gameId==='detective'){if(!data?.detective)return <div className="game-wait">Загружаем расследование…</div>;return <Detective caseData={data.detective} isHost={room.host} roomCode={room.code} onRestart={()=>detectiveAction('start',{})} onInspect={item_id=>detectiveAction('inspect',{item_id})} onAccuse={answers=>detectiveAction('accuse',{answers})} onTheory={(suspect,reason)=>detectiveAction('theory',{suspect,reason})} onClose={back} error={error}/>};return <PartyGame room={room} data={data} goLobby={back} send={send} busy={busy} error={error}/>}
+function App(){const [room,setRoom]=useState(readSession);const [data,setData]=useState(null);const [loading,setLoading]=useState(true);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const navigate=useNavigate();const location=useLocation();const revision=useRef(0);const lastActive=useRef(undefined);
+ useEffect(()=>{if(room)sessionStorage.setItem(SESSION_KEY,JSON.stringify(room));else sessionStorage.removeItem(SESSION_KEY)},[room]);
+ useEffect(()=>{if(!room){setData(null);setLoading(false);return}let stopped=false;let timer;async function poll(){const captured=revision.current;try{const result=await api('state',{code:room.code,token:room.token});if(!stopped&&captured===revision.current){setData(result);setError('');setLoading(false)}}catch(e){if(stopped)return;if(/не найдена|завершено/.test(e.message)){setRoom(null);setData(null);setError('Лобби закрыто или срок подключения истёк. Войди снова.');navigate('/join',{replace:true})}else{setError('Нет соединения с сервером. Пытаемся подключиться…');setLoading(false)}}finally{if(!stopped)timer=setTimeout(poll,1500)}}setLoading(true);poll();return()=>{stopped=true;clearTimeout(timer)}},[room,navigate]);
+ useEffect(()=>{if(!room||!data)return;const active=data.active_game;const path=`/lobby/${room.code}`;const previous=lastActive.current;lastActive.current=active;if(previous!==active){if(active)navigate(`${path}/game/${active}`,{replace:true});else if(location.pathname.includes('/game/'))navigate(path,{replace:true})}},[data?.active_game,room,navigate,location.pathname]);
+ async function act(fn){if(busy)return;setBusy(true);setError('');try{await fn();return true}catch(e){setError(e.message);return false}finally{setBusy(false)}}
+ async function create(){await act(async()=>{const next=await api('create');lastActive.current=undefined;setData(null);setRoom(next);navigate(`/lobby/${next.code}`)})}
+ async function join(code,name){if(room&&room.code!==code){setError('Сначала выйди из текущего лобби.');return}if(room&&room.code===code){navigate(`/lobby/${code}`);return}await act(async()=>{const next=await api('join',{code:code.trim().toUpperCase(),name:name.trim()});lastActive.current=undefined;setData(null);setRoom(next);navigate(`/lobby/${next.code}`)})}
+ async function leave(){await act(async()=>{await api('leave',{code:room.code,token:room.token});revision.current++;lastActive.current=undefined;setRoom(null);setData(null);navigate('/')})}
+ async function send(state){return await act(async()=>{await api('update',{code:room.code,token:room.token,state});revision.current++;const result=await api('state',{code:room.code,token:room.token});setData(result)})}
+ async function start(id){if(id==='detective'){const ok=await act(async()=>{await api('detective/start',{code:room.code,token:room.token});revision.current++;setData(await api('state',{code:room.code,token:room.token}))});if(ok)navigate(`/lobby/${room.code}/game/${id}`);return}const list=games[id].items;const value=id==='truth'?null:list[Math.floor(Math.random()*list.length)];const prompt=id==='truth'?'Выбирай: правда или действие?':Array.isArray(value)?value[0]:value;const answer=Array.isArray(value)?`Ответ: ${value[1]}`:'';const ok=await send({game_id:id,title:games[id].title,prompt:id==='croc'?'Ведущий показывает слово. Угадайте его!':prompt,host_prompt:prompt,host_answer:answer,answer:''});if(ok)navigate(`/lobby/${room.code}/game/${id}`)}
+ async function back(){if(room.host && !(await send(null)))return;navigate(`/lobby/${room.code}`)}
+ async function detectiveAction(action,body){try{setError('');await api(`detective/${action}`,{code:room.code,token:room.token,...body});revision.current++;setData(await api('state',{code:room.code,token:room.token}))}catch(e){setError(e.message)}}
+ return <Routes><Route path="/" element={<Home room={room} create={create} busy={busy} error={error}/>}/><Route path="/join" element={<Join room={room} join={join} busy={busy} error={error}/>}/><Route path="/lobby/:code" element={<Guard room={room}><Lobby room={room} data={data} loading={loading} error={error} leave={leave} start={start} busy={busy}/></Guard>}/><Route path="/lobby/:code/game/:gameId" element={<Guard room={room}><GameRoute room={room} data={data} back={back} detectiveAction={detectiveAction} error={error} send={send} busy={busy}/></Guard>}/><Route path="*" element={<Navigate to="/" replace/>}/></Routes>
 }
-function App() {
-  const [room,setRoom] = useState(() => { try { return JSON.parse(sessionStorage.getItem('sbor-room')) } catch { return null } })
-  const [roomView,setRoomView] = useState(null)
-  const [players,setPlayers] = useState([])
-  const [shared,setShared] = useState(null)
-  const [detective,setDetective] = useState(null)
-  const [error,setError] = useState('')
-  const [code,setCode] = useState('')
-  const [name,setName] = useState('')
-  const [game,setGame] = useState(null)
-  const [card,setCard] = useState(null)
-  const [revealed,setRevealed] = useState(false)
-  const last = useRef({})
-  const updates = useRef(Promise.resolve())
-  useEffect(() => { if(room) sessionStorage.setItem('sbor-room',JSON.stringify(room)); else sessionStorage.removeItem('sbor-room') },[room])
-  useEffect(() => {
-    if (!room) return
-    let stopped = false
-    const poll = async () => {
-      try {
-        const data = await api('state',room)
-        if (!stopped) { setPlayers(data.players); setShared(data.state); setDetective(data.detective); setError('') }
-      } catch (err) {
-        if (stopped) return
-        if (/не найдена|завершено/.test(err.message)) { setRoom(null); setGame(null); setRoomView('closed') }
-        else setError('Нет соединения. Пытаемся подключиться…')
-      }
-    }
-    poll(); const id = setInterval(poll,1500)
-    return () => { stopped = true; clearInterval(id) }
-  },[room])
-  useEffect(() => { if(room && !room.host) setRoomView('room') },[]) // Restore a participant's room after refresh.
-  function publish(state) {
-    if (!room?.host) return
-    const credentials = {code:room.code,token:room.token}
-    updates.current = updates.current.then(() => api('update',{...credentials,state})).catch(() => setError('Не удалось обновить игру. Проверьте соединение.'))
-  }
-  function selectCard(id, type='items') {
-    const list=games[id][type], key=id+type, index=choose(list,last.current[key]); last.current[key]=index
-    const value=list[index], next=Array.isArray(value)?{prompt:value[0],answer:`Ответ: ${value[1]}`}:{prompt:value,answer:''}
-    setCard(next); setRevealed(false)
-    publish({title:games[id].title,prompt:id==='croc'?'Ведущий показывает слово. Угадайте его!':next.prompt,answer:''})
-  }
-  function openGame(id) {
-    if (room && !room.host) {setRoomView('room');return}
-    if (id === 'detective') { startDetective(); return }
-    setGame(id); setRevealed(false)
-    if(id==='truth') {setCard({prompt:'Выбирай: правда или действие?',answer:''});publish({title:games[id].title,prompt:'Выбирай: правда или действие?',answer:''})}
-    else selectCard(id)
-  }
-  async function startDetective() {
-    try {
-      setError('')
-      let currentRoom = room
-      if (!currentRoom) { currentRoom = await api('create'); setRoom(currentRoom) }
-      if (!detective) setDetective(await api('detective/start',currentRoom))
-      setRoomView(null); setGame('detective')
-    } catch (err) { setError(err.message); setRoomView('menu') }
-  }
-  async function detectiveAction(action, body) {
-    try { setError(''); const data=await api(`detective/${action}`,{...room,...body}); setDetective(data) }
-    catch(err) { setError(err.message) }
-  }
-  function closeGame(){if(game==='detective'){setGame(null);return}setGame(null);setCard(null);publish(null)}
-  async function createRoom(){try{setError('');const result=await api('create');setRoom(result);setRoomView('room')}catch(e){setError(e.message)}}
-  async function joinRoom(e){e.preventDefault();try{setError('');const result=await api('join',{code:code.trim().toUpperCase(),name:name.trim()});setRoom(result);setRoomView('room')}catch(err){setError(err.message)}}
-  async function leaveRoom(){const previous=room;setRoom(null);setRoomView(null);setGame(null);setShared(null);setDetective(null);try{await api('leave',previous)}catch{/* The room may already have expired. */}}
-  function showAnswer(){setRevealed(true);publish({title:games[game].title,prompt:card.prompt,answer:card.answer})}
-  const dialogOpen=roomView !== null || game !== null
-  useEffect(()=>{document.body.style.overflow=dialogOpen?'hidden':'';return()=>{document.body.style.overflow=''}},[dialogOpen])
-  useEffect(()=>{const handle=e=>{if(e.key==='Escape'){if(roomView)setRoomView(null);else if(game)closeGame()}};window.addEventListener('keydown',handle);return()=>window.removeEventListener('keydown',handle)})
-  return <>
-    <header><a className="logo" href="#">СБОР<span>✳</span></a><nav><a href="#games">Игры</a><a href="#how">Как играть</a><a className="pill" href="#games">Выбрать игру ↗</a></nav></header>
-    <div className="roombar"><span>{room?`Комната ${room.code} · ${room.host?'вы ведущий':'вы в игре'}`:'Играете с друзьями? Создайте комнату или войдите по коду.'}</span><button onClick={()=>{setError('');setRoomView(room?'room':'menu')}}>{room?`Комната ${room.code}`:'Комнаты ↗'}</button></div>
-    <main><div className="wrap"><section className="hero"><div><div className="eyebrow"><span className="dot"/>Для тех, кто сегодня вместе</div><h1>СОБРАЛИСЬ?<br/><em>ИГРАЕМ.</em></h1><p>Игры, которые превращают обычный вечер в истории, которые вы ещё долго будете вспоминать.</p><a className="button" href="#games">Выбрать игру <span>↗</span></a><span className="small">Бесплатно. Без регистрации.</span></div><div className="art" aria-hidden="true"><div className="art-label">ХОРОШИЙ ВЕЧЕР НАЧИНАЕТСЯ ЗДЕСЬ ↗</div><div className="card one"><small>СБОР / 01</small><div className="face">✳</div><strong>ВСЕ<br/>СВОИ.</strong></div><div className="card two"><small>СБОР / 02</small><div className="face">☺</div><strong>ВСЕ<br/>В ИГРЕ.</strong></div><div className="spark">✴</div></div></section>
-    <div className="strip"><span>✳ БЕЗ СКАЧИВАНИЙ</span><span>✳ ДЛЯ ЛЮБОЙ КОМПАНИИ</span><span>✳ ВСЁ БЕСПЛАТНО</span></div>
-    <section className="section" id="games"><div className="section-head"><div><div className="eyebrow"><span className="dot"/>ВЫБИРАЙТЕ НАСТРОЕНИЕ</div><h2>ВО ЧТО ИГРАЕМ?</h2></div><p>Игры для компании и одно загадочное дело.</p></div><div className="grid">{cards.map(([id,label,icon,title,desc])=><button className="game" key={id} onClick={()=>openGame(id)}><span className="num">{label}</span><span className="icon">{icon}</span><h3>{title}</h3><p>{desc}</p><span className="go">↗</span></button>)}</div></section>
-    <section className="how" id="how"><div><div className="eyebrow" style={{color:'#c6e755'}}>ПРОЩЕ ПРОСТОГО</div><h2>НИЧЕГО<br/>ЛИШНЕГО.</h2></div><div className="steps"><div className="step"><b>01</b><p>Ведущий создаёт комнату и показывает друзьям её код.</p></div><div className="step"><b>02</b><p>Игроки открывают сайт на своих устройствах и входят по коду.</p></div><div className="step"><b>03</b><p>Ведущий выбирает игру и управляет карточками. Играем!</p></div></div></section><footer className="footer"><span className="logo" style={{color:'var(--ink)'}}>СБОР<span>✳</span></span><span>Сделано для хороших вечеров.</span><span>Играйте вместе ♡</span></footer></div></main>
-    {game==='detective' && <Detective caseData={detective} isHost={room?.host} roomCode={room?.code} onRestart={()=>detectiveAction('start',{})} onInspect={item_id=>detectiveAction('inspect',{item_id})} onAccuse={answers=>detectiveAction('accuse',{answers})} onTheory={(suspect,reason)=>detectiveAction('theory',{suspect,reason})} onClose={()=>setGame(null)} error={error}/>}
-    {game && game!=='detective' && <div className="modal open" onClick={e=>{if(e.target===e.currentTarget)closeGame()}}><div className="dialog" role="dialog" aria-modal="true" aria-labelledby="gameTitle"><div className="dialog-top"><span className="eyebrow">СБОР ✳ ИГРАЕМ ВМЕСТЕ</span><button className="close" onClick={closeGame} aria-label="Закрыть">×</button></div><h2 id="gameTitle">{games[game].title}</h2><p className="desc">{games[game].desc}</p><div className="prompt">{card?.prompt}</div><div className="actions">{game==='truth'?<><button className="primary" onClick={()=>selectCard(game,'truth')}>Правда</button><button className="secondary" onClick={()=>selectCard(game,'dare')}>Действие</button></>:<><button className="primary" onClick={()=>selectCard(game)}>{game==='quiz'?'Следующий вопрос':'Следующая карточка'}</button>{game==='quiz'&&<button className="secondary" onClick={showAnswer}>Показать ответ</button>}</>}</div>{revealed&&<div className="answer">{card?.answer}</div>}{error&&<p className="room-error" role="alert">{error}</p>}</div></div>}
-    {roomView && <div className="room-overlay open" onClick={e=>{if(e.target===e.currentTarget)setRoomView(null)}}><div className="room-box" role="dialog" aria-modal="true" aria-labelledby="roomTitle"><div className="room-top"><span className="eyebrow">СБОР ✳ КОМНАТЫ</span><button className="close" onClick={()=>setRoomView(null)} aria-label="Закрыть">×</button></div>
-      {roomView==='menu'&&<><h2 id="roomTitle">Играем вместе?</h2><p>Ведущий создаёт комнату на общем экране. Игроки открывают этот же сайт на своих телефонах и вводят код.</p><div className="actions"><button className="primary" onClick={createRoom}>Создать комнату</button><button className="secondary" onClick={()=>{setError('');setRoomView('join')}}>Войти по коду</button></div></>}
-      {roomView==='join'&&<form onSubmit={joinRoom}><h2 id="roomTitle">Войти в комнату</h2><p>Введите код с экрана ведущего и своё имя.</p><label htmlFor="joinCode">Код комнаты</label><input id="joinCode" placeholder="Например, ABCD" maxLength="4" autoCapitalize="characters" value={code} onChange={e=>setCode(e.target.value)} required/><label htmlFor="joinName">Ваше имя</label><input id="joinName" placeholder="Как вас зовут?" maxLength="20" value={name} onChange={e=>setName(e.target.value)} required/><div className="actions"><button className="primary">Войти</button><button type="button" className="secondary" onClick={()=>setRoomView('menu')}>Назад</button></div></form>}
-      {roomView==='room'&&room&&<><h2 id="roomTitle">{room.host?'Ваша комната':'Вы в комнате'}</h2><p>{room.host?'Попросите друзей открыть этот сайт и ввести код. Выберите игру на общем экране.':'Ожидайте, пока ведущий выберет игру.'}</p><div className="room-code">{room.code}</div><p className="room-players">Игроки ({players.length}): {players.join(', ')||'пока никто не подключился'}</p>{!room.host&&detective&&<div className="actions"><button className="primary" onClick={()=>{setRoomView(null);setGame('detective')}}>Открыть расследование ↗</button></div>}{room.host&&detective&&<div className="actions"><button className="primary" onClick={()=>{setRoomView(null);setGame('detective')}}>Продолжить расследование ↗</button></div>}{!room.host&&!detective&&<div className="guest-screen">{shared?<><small>{shared.title.toUpperCase()}</small><div>{shared.prompt}</div>{shared.answer&&<p>{shared.answer}</p>}</>:'Ждём, когда ведущий выберет игру…'}</div>}<div className="actions">{room.host&&<button className="primary" onClick={()=>{setRoomView(null);document.querySelector('#games').scrollIntoView({behavior:'smooth'})}}>Выбрать игру</button>}<button className="secondary" onClick={leaveRoom}>{room.host?'Закрыть комнату':'Выйти'}</button></div></>}
-      {roomView==='closed'&&<><h2 id="roomTitle">Комната закрыта</h2><p>Войдите в другую комнату или создайте новую.</p><div className="actions"><button className="primary" onClick={()=>setRoomView('menu')}>К комнатам</button></div></>}{error&&<p className="room-error" role="alert">{error}</p>}</div></div>}
-  </>
-}
-
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(document.getElementById('root')).render(<BrowserRouter><App/></BrowserRouter>)

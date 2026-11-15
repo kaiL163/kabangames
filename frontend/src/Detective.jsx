@@ -25,9 +25,9 @@ export default function Detective({caseData, isHost, roomCode, onInspect, onAccu
     try { await onAccuse(answers) } finally { setBusy(false) }
   }
   return <div className="detective-overlay"><div className="detective" role="dialog" aria-modal="true" aria-labelledby="caseTitle">
-    <div className="case-top"><div className="case-brand">СБОР <span>✳</span> / ДЕТЕКТИВНОЕ АГЕНТСТВО</div><div className="case-top-actions"><span className="case-room">КОД КОМНАТЫ: <strong>{roomCode}</strong></span><button className="case-close" aria-label="Закрыть дело" onClick={onClose}>×</button></div></div>
+    <div className="case-top"><div className="case-brand">KABAN GAMES <span>✳</span> / ДЕТЕКТИВНОЕ АГЕНТСТВО</div><div className="case-top-actions"><span className="case-room">КОД КОМНАТЫ: <strong>{roomCode}</strong></span><button className="case-close" aria-label="Закрыть дело" onClick={onClose}>×</button></div></div>
     {!caseData ? <p className="case-loading">Загружаем материалы дела…</p> : <>
-      <div className="case-heading"><div><div className="case-label"><span>●</span> ДЕЛО № 01 / {caseData?.result?'ЗАКРЫТО':'ОТКРЫТО'}</div><h2 id="caseTitle">{caseData.title}</h2><p>{caseData.intro}</p></div><div className="case-stamp">МАТЕРИАЛЫ<br/><strong>ДЕЛА</strong><br/>01 / СБОР</div></div>
+      <div className="case-heading"><div><div className="case-label"><span>●</span> ДЕЛО № 01 / {caseData?.result?'ЗАКРЫТО':'ОТКРЫТО'}</div><h2 id="caseTitle">{caseData.title}</h2><p>{caseData.intro}</p></div><div className="case-stamp">МАТЕРИАЛЫ<br/><strong>ДЕЛА</strong><br/>01 / KABAN GAMES</div></div>
       <div className="case-info"><span>◷ 30–45 МИНУТ</span><span>♟ 1–16 ИГРОКОВ</span><span>◎ ИЗУЧЕНО {opened} / {caseData.items.length}</span></div>
       <div className="case-body"><div className="case-main"><div className="case-section-head"><div><div className="case-label">ВАШЕ РАССЛЕДОВАНИЕ</div><h3>{tab === 'Версия' ? 'Соберите факты' : 'Что проверим?'}</h3></div><span>МАТЕРИАЛЫ / 01</span></div>
         <div className="case-tabs" role="tablist" aria-label="Разделы расследования">{['Места','Улики','Люди','Блокнот','Обсуждение','Версия'].map(name=><button type="button" role="tab" aria-selected={tab===name} className={tab===name?'active':''} key={name} onClick={()=>{setTab(name);setSelected(null)}}>{name}</button>)}</div>
