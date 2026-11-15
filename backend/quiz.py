@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 
 BANK = json.loads((Path(__file__).parent / 'quiz_bank.json').read_text(encoding='utf-8'))
+CAR_BRANDS = json.loads((Path(__file__).parent / 'car_brands.json').read_text(encoding='utf-8'))
+BANK['carquiz']['items'] = [['Угадай марку автомобиля по эмблеме', name] for name in CAR_BRANDS]
 ROUND_SECONDS = 30
 MAX_ROUNDS = 10
 QUIZ_DISTRACTORS = {
@@ -27,12 +29,12 @@ CINEMA_DISTRACTORS = {
 def participants(room):
     return {room['host']: room['host_name'], **{token: p['name'] for token, p in room['players'].items()}}
 
-def start(room, game_id):
+def start(room, game_id, rounds=10):
     if game_id not in BANK:
         raise ValueError('Эта игра не поддерживает викторину')
     questions = list(BANK[game_id]['items'])
     random.shuffle(questions)
-    room['quiz'] = {'instance': secrets.token_urlsafe(12), 'id': game_id, 'title': BANK[game_id]['title'], 'questions': questions[:MAX_ROUNDS], 'index': -1, 'scores': {}, 'phase': 'between'}
+    room['quiz'] = {'instance': secrets.token_urlsafe(12), 'id': game_id, 'title': BANK[game_id]['title'], 'questions': questions[:rounds], 'index': -1, 'scores': {}, 'phase': 'between'}
     next_round(room)
 
 def next_round(room):
@@ -43,19 +45,20 @@ def next_round(room):
         quiz['phase'] = 'finished'
         return
     quiz['index'] += 1
-    question, correct = quiz['questions'][quiz['index']]
-    pool = list(dict.fromkeys(answer for _, answer in BANK[quiz['id']]['items'] if answer != correct))
+    item = quiz['questions'][quiz['index']]
+    question, correct = item[:2]
+    pool = list(dict.fromkeys(entry[1] for entry in BANK[quiz['id']]['items'] if entry[1] != correct))
     if quiz['id'] == 'truefalse':
         options = ['Правда', 'Фейк']
     else:
-        specific = (QUIZ_DISTRACTORS if quiz['id'] == 'quiz' else CINEMA_DISTRACTORS if quiz['id'] == 'cinema' else {}).get(correct)
+        specific = item[2] if len(item)>2 else (QUIZ_DISTRACTORS if quiz['id'] == 'quiz' else CINEMA_DISTRACTORS if quiz['id'] == 'cinema' else {}).get(correct)
         if specific:
             pool = list(specific)
         else:
             random.shuffle(pool)
         options = [correct, *pool[:3]]
         random.shuffle(options)
-    quiz.update({'question': question, 'correct': correct, 'options': options, 'answers': {}, 'eligible': participants(room), 'deadline': time.time()+ROUND_SECONDS, 'phase': 'question'})
+    quiz.update({'question': question, 'correct': correct, 'image': '/car-logos/'+CAR_BRANDS[correct] if quiz['id']=='carquiz' else None, 'options': options, 'answers': {}, 'eligible': participants(room), 'deadline': time.time()+ROUND_SECONDS, 'phase': 'question'})
     for token, name in quiz['eligible'].items():
         quiz['scores'].setdefault(token, {'name': name, 'score': 0})
 
@@ -86,7 +89,7 @@ def view(room, token):
     finish_if_needed(room)
     phase = quiz['phase']
     data = {'instance': quiz['instance'], 'game_id': quiz['id'], 'title': quiz['title'], 'phase': phase, 'round': quiz['index']+1, 'total': len(quiz['questions']),
-            'question': quiz.get('question'), 'options': quiz.get('options', []), 'remaining': max(0, int(quiz.get('deadline', 0)-time.time()+0.999)),
+            'question': quiz.get('question'), 'image': quiz.get('image'), 'options': quiz.get('options', []), 'remaining': max(0, int(quiz.get('deadline', 0)-time.time()+0.999)),
             'answered': token in quiz.get('answers', {}), 'my_choice': quiz.get('answers', {}).get(token),
             'can_answer': token in quiz.get('eligible', {}), 'answers_count': len(quiz.get('answers', {})), 'players_count': len(quiz.get('eligible', {})),
             'scores': sorted(quiz['scores'].values(), key=lambda p: -p['score'])}

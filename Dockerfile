@@ -10,7 +10,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY backend/main.py backend/detective.py backend/quiz.py backend/quiz_bank.json backend/writing_game.py backend/party.py backend/spy_game.py backend/reaction.py ./
+COPY backend/main.py backend/detective.py backend/quiz.py backend/quiz_bank.json backend/car_brands.json backend/writing_game.py backend/party.py backend/spy_game.py backend/reaction.py ./
 COPY --from=frontend /build/dist ./static
 RUN useradd --create-home appuser
 USER appuser

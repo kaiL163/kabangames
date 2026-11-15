@@ -4,13 +4,14 @@ import secrets
 import time
 
 def people(room):return {room['host']:room['host_name'],**{k:p['name'] for k,p in room['players'].items()}}
-def start(room):
+def start(room,rounds=10):
     if len(people(room))<2:raise ValueError('Нужны минимум два игрока')
-    room['party']={'id':'reaction','instance':secrets.token_urlsafe(12),'title':'Реакция','round':0,'phase':'result','scores':{}}
+    room['party']={'id':'reaction','instance':secrets.token_urlsafe(12),'title':'Реакция','round':0,'phase':'result','scores':{},'total_rounds':rounds}
     next_round(room)
 def next_round(room):
     g=room['party']
     if g['phase']!='result':raise ValueError('Раунд ещё идёт')
+    if g['round']>=g['total_rounds']:g['phase']='finished';return
     g['round']+=1;g['eligible']=people(room);g['taps']={};g['phase']='wait';g['signal_at']=time.time()+random.uniform(2,5);g['trap']=random.random()<.3
     for k,name in g['eligible'].items():g['scores'].setdefault(k,{'name':name,'score':0})
 def update(room):
@@ -28,4 +29,4 @@ def action(room,token,kind,value):
     g['scores'][token]['score']+=points;update(room)
 def view(room,token):
     update(room);g=room['party']
-    return {'game_id':'reaction','title':'Реакция','instance':g['instance'],'round':g['round'],'phase':g['phase'],'eligible':token in g['eligible'],'tapped':token in g['taps'],'color':'grey' if g['phase']=='wait' else 'red' if g['trap'] else 'green','scores':sorted(g['scores'].values(),key=lambda x:-x['score']),'results':list(g['taps'].values()) if g['phase']=='result' else [],'players_count':len(g['eligible'])}
+    return {'game_id':'reaction','title':'Реакция','instance':g['instance'],'round':g['round'],'total':g['total_rounds'],'phase':g['phase'],'eligible':token in g['eligible'],'tapped':token in g['taps'],'color':'grey' if g['phase']=='wait' else 'red' if g['trap'] else 'green','scores':sorted(g['scores'].values(),key=lambda x:-x['score']),'results':list(g['taps'].values()) if g['phase'] in ('result','finished') else [],'players_count':len(g['eligible'])}

@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from typing import Literal
 
 try:
     from .detective import CASE, ANSWERS, EXPLANATION
@@ -50,6 +51,10 @@ class Update(Credentials):
 
 class QuizStart(Credentials):
     game_id: str = Field(max_length=20)
+    rounds: Literal[5, 10, 15] = 10
+
+class WritingStart(Credentials):
+    rounds: Literal[5, 10, 15] = 5
 
 class QuizAnswer(Credentials):
     instance: str = Field(max_length=40)
@@ -63,6 +68,7 @@ class WritingAction(Credentials):
 
 class PartyStart(Credentials):
     game_id: str = Field(max_length=20)
+    rounds: Literal[5, 10, 15] = 10
 
 class PartyAction(Credentials):
     instance: str = Field(max_length=40)
@@ -176,7 +182,7 @@ async def quiz_start(body: QuizStart):
         prune()
         room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
-        try: quiz_game.start(room, body.game_id)
+        try: quiz_game.start(room, body.game_id, body.rounds)
         except ValueError as error: raise HTTPException(400, str(error))
         room['state'] = None
         room['detective'] = None
@@ -210,11 +216,11 @@ async def quiz_next(body: Credentials):
         return quiz_game.view(room, body.token)
 
 @app.post('/api/writing/start')
-async def writing_start(body: Credentials):
+async def writing_start(body: WritingStart):
     async with lock:
         prune(); room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
-        try: writing_game.start(room)
+        try: writing_game.start(room, body.rounds)
         except ValueError as error: raise HTTPException(400, str(error))
         room['state'] = None; room['detective'] = None; room['quiz'] = None; room['party'] = None
         return writing_game.view(room, body.token)
@@ -249,7 +255,7 @@ async def party_start(body: PartyStart):
     async with lock:
         prune(); room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
-        try: party.start(room, body.game_id)
+        try: party.start(room, body.game_id, body.rounds)
         except ValueError as error: raise HTTPException(400, str(error))
         room['state'] = None; room['detective'] = None; room['quiz'] = None; room['writing'] = None
         return party.view(room, body.token)
@@ -376,6 +382,7 @@ async def leave(body: Credentials):
 
 static = Path(__file__).resolve().parent / 'static'
 if static.is_dir():
+    app.mount('/car-logos', StaticFiles(directory=static / 'car-logos', check_dir=False), name='car-logos')
     app.mount('/evidence', StaticFiles(directory=static / 'evidence', check_dir=False), name='evidence')
     app.mount('/assets', StaticFiles(directory=static / 'assets'), name='assets')
     @app.get('/favicon.svg')

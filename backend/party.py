@@ -12,16 +12,23 @@ TRUTHS=['Какой у тебя самый странный талант?','Ка
 DARES=['Изобрази животное, пока остальные не угадают.','Придумай рекламный слоган для соседа справа.','Станцуй 15 секунд без музыки.','Изобрази ведущего прогноза погоды.','Скажи каждому игроку по приятной вещи.','Спой строчку любой песни шёпотом.','Покажи свою самую смешную походку.']
 WHO=['Кто скорее сорвётся в спонтанное путешествие?','Кто скорее забудет, зачем вошёл в комнату?','Кто скорее станет знаменитым?','Кто скорее уснёт во время фильма?','Кто скорее заведёт необычного питомца?','Кто скорее подружится с незнакомцем?','Кто скорее начнёт танцевать первым?']
 STORY=[('Кто наш герой?',['Кот-детектив','Уставший космонавт','Повар-волшебник','Пенсионерка-шпион']),('Где происходит история?',['В космическом лифте','В заброшенном кинотеатре','В круглосуточном супермаркете','На летающем острове']),('Что пошло не так?',['Исчезли все носки','Время пошло назад','Пропал завтрак','Луна упала в пруд']),('Кто злодей?',['Говорящий холодильник','Злобный будильник','Армия пылесосов','Таинственный сосед']),('Какой у героя план?',['Устроить конкурс талантов','Найти волшебную ложку','Притвориться мебелью','Попросить помощи у голубей']),('Неожиданный поворот',['Злодей оказался другом','Всё случилось во сне кота','План придумала бабушка','Появился второй холодильник']),('Кто поможет герою?',['Храбрый хомяк','Говорящая маршрутка','Почтальон из будущего','Команда уток']),('Чем всё закончилось?',['Все открыли кафе','Герой выиграл танцевальный батл','Мир спасла пицца','Все помирились за чаем'])]
+WORDS += ['Ананас','Арбуз','Барабан','Батут','Бегемот','Бинокль','Блин','Бобёр','Ботинок','Букет','Велосипед','Вертолёт','Водопад','Воздушный шар','Волшебник','Воробей','Гамак','Гитара','Глобус','Гном','Голубь','Градусник','Гриб','Гусеница','Дельфин','Дирижёр','Дождевик','Дракула','Единорог','Ёжик','Жираф','Жонглёр','Заяц','Зебра','Зонтик','Кабан','Кактус','Кальмар','Кенгуру','Клавиатура','Клоун','Комар','Корабль','Корова','Краб','Кузнечик','Лабиринт','Лампа','Лев','Ледокол','Лягушка','Маяк','Медведь','Мельница','Микрофон','Муравей','Носорог','Обезьяна','Облако','Одуванчик','Официант','Панда','Паровоз','Пельмень','Пианино','Пират','Пожарный','Попкорн','Почтальон','Привидение','Пчела','Радуга','Ракета','Робот','Русалка','Самокат','Светофор','Скрипка','Слон','Снеговик','Собака','Сова','Солдат','Страус','Сыр','Танцор','Телескоп','Тигр','Трактор','Трамвай','Тюлень','Улитка','Утюг','Факел','Фейерверк','Фламинго','Фонтан','Хомяк','Художник','Цирк','Чайник','Часы','Чемодан','Шарф','Шахматы','Шоколад','Щенок','Электрик','Якорь','Ящерица','Аквалангист','Библиотекарь','Вампир','Гладиатор','Дворник','Журналист','Капитан','Маляр','Пекарь','Садовник','Таксист','Фермер','Шахтёр','Астронавт','Будильник','Вулкан','Молния','Подводная лодка','Микроскоп','Сковорода','Карусель','Футболист','Фокусник','Космодром','Медуза','Попугай','Пианино','Скейтборд','Кофемолка','Косилка','Термометр','Самовар','Бутерброд']
+WORDS = list(dict.fromkeys(WORDS))
 TITLES={'croc':'Крокодил','truth':'Правда или действие','twotruths':'Две правды и одна ложь','screenwriter':'Безумный сценарист','who':'Кто скорее?'}
 
+def draw(g,key,values):
+    if not g.setdefault('decks',{}).get(key):
+        g['decks'][key]=random.sample(values,len(values))
+    return g['decks'][key].pop()
+
 def people(room): return {room['host']:room['host_name'],**{k:p['name'] for k,p in room['players'].items()}}
-def start(room,mode):
-    if mode=='spy':return spy_game.start(room)
-    if mode=='reaction':return reaction.start(room)
+def start(room,mode,rounds=10):
+    if mode=='spy':return spy_game.start(room,rounds)
+    if mode=='reaction':return reaction.start(room,rounds)
     if mode not in TITLES: raise ValueError('Игра не найдена')
     minimum=3 if mode in ('twotruths','who') else 2
     if len(people(room))<minimum: raise ValueError(f'Нужно минимум {minimum} игрока, включая ведущего')
-    game={'id':mode,'title':TITLES[mode],'instance':secrets.token_urlsafe(12),'round':0,'phase':'result','scores':{},'story':[]}
+    game={'id':mode,'title':TITLES[mode],'instance':secrets.token_urlsafe(12),'round':0,'phase':'result','scores':{},'story':[],'total_rounds':8 if mode=='screenwriter' else rounds}
     room['party']=game
     next_round(room)
 def next_round(room):
@@ -29,20 +36,20 @@ def next_round(room):
     if mode=='spy':return spy_game.next_round(room)
     if mode=='reaction':return reaction.next_round(room)
     if g['phase']!='result': raise ValueError('Дождитесь окончания раунда')
+    if g['round']>=g['total_rounds']: g['phase']='finished'; return
     players=people(room)
     minimum=3 if mode in ('twotruths','who') else 2
     if len(players)<minimum: raise ValueError(f'Нужно минимум {minimum} игрока, включая ведущего')
-    if mode=='screenwriter' and g['round']>=len(STORY): g['phase']='finished'; return
     g['round']+=1;g['eligible']=players;g['votes']={};g['choices']=[];g['deadline']=time.time()+60
     for token,name in players.items():g['scores'].setdefault(token,{'name':name,'score':0})
     roster=list(players);g['actor']=roster[(g['round']-1)%len(roster)]
-    if mode=='croc': g.update({'phase':'guess','word':random.choice(WORDS),'guesser':None})
+    if mode=='croc': g.update({'phase':'guess','word':draw(g,'words',WORDS),'guesser':None})
     elif mode=='truth':g.update({'phase':'choose','prompt':None,'deadline':None})
     elif mode=='twotruths':g.update({'phase':'write','facts':[],'lie':None})
     elif mode=='screenwriter':
         prompt,options=STORY[g['round']-1];g.update({'phase':'vote','prompt':prompt,'choices':[{'id':str(i),'text':v} for i,v in enumerate(options)],'deadline':time.time()+30})
     else:
-        g.update({'phase':'vote','prompt':random.choice(WHO),'choices':[{'id':secrets.token_urlsafe(12),'text':name,'owner':token} for token,name in players.items()],'deadline':time.time()+30})
+        g.update({'phase':'vote','prompt':draw(g,'who',WHO),'choices':[{'id':secrets.token_urlsafe(12),'text':name,'owner':token} for token,name in players.items()],'deadline':time.time()+30})
 def end_vote(g):
     if g['id']=='twotruths':
         for voter,choice in g['votes'].items():
@@ -82,7 +89,7 @@ def action(room,token,kind,value='',facts=None,lie=None):
         return
     if mode=='truth' and token==g['actor']:
         if kind=='choose' and phase=='choose' and value in ('truth','dare'):
-            g['phase']='challenge';g['prompt']=random.choice(TRUTHS if value=='truth' else DARES);g['choice']=value;return
+            g['phase']='challenge';g['prompt']=draw(g,value,TRUTHS if value=='truth' else DARES);g['choice']=value;return
         if kind=='done' and phase=='challenge':g['phase']='result';return
     if mode=='twotruths' and token==g['actor'] and kind=='facts' and phase=='write':
         facts=[x.strip() for x in (facts or [])]
@@ -104,7 +111,7 @@ def view(room,token):
     if g['id']=='spy':return spy_game.view(room,token)
     if g['id']=='reaction':return reaction.view(room,token)
     update(room);mode=g['id'];phase=g['phase'];actor=g['actor']
-    result={'game_id':mode,'title':g['title'],'instance':g['instance'],'round':g['round'],'phase':phase,'actor':g['eligible'].get(actor),'is_actor':actor==token,'eligible':token in g['eligible'],'remaining':max(0,int(g['deadline']-time.time()+.999)) if g['deadline'] else None,'scores':sorted(g['scores'].values(),key=lambda p:-p['score']),'voted':token in g['votes'],'votes_count':len(g['votes']),'players_count':len(g['eligible']),'story':g['story']}
+    result={'game_id':mode,'title':g['title'],'instance':g['instance'],'round':g['round'],'total':g['total_rounds'],'phase':phase,'actor':g['eligible'].get(actor),'is_actor':actor==token,'eligible':token in g['eligible'],'remaining':max(0,int(g['deadline']-time.time()+.999)) if g['deadline'] else None,'scores':sorted(g['scores'].values(),key=lambda p:-p['score']),'voted':token in g['votes'],'votes_count':len(g['votes']),'players_count':len(g['eligible']),'story':g['story']}
     if mode=='croc':
         if token==actor or phase=='result':result['word']=g['word']
         if phase=='result':result['guesser']=g['eligible'].get(g['guesser'])

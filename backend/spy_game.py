@@ -7,13 +7,14 @@ LOCATIONS=['Больница','Космический корабль','Школ�
 QUESTIONS=['Здесь обычно тихо или шумно?','Что здесь можно увидеть?','В какой одежде сюда приходят?','Ты бы хотел здесь работать?']
 
 def players(room):return {room['host']:room['host_name'],**{k:p['name'] for k,p in room['players'].items()}}
-def start(room):
+def start(room,rounds=10):
     if len(players(room))<4:raise ValueError('Для «Шпиона» нужны минимум четыре игрока')
-    room['party']={'id':'spy','title':'Шпион','instance':secrets.token_urlsafe(12),'round':0,'phase':'result','scores':{}}
+    room['party']={'id':'spy','title':'Шпион','instance':secrets.token_urlsafe(12),'round':0,'phase':'result','scores':{},'total_rounds':rounds}
     next_round(room)
 def next_round(room):
     g=room['party']
     if g['phase']!='result':raise ValueError('Сначала закончите раунд')
+    if g['round']>=g['total_rounds']:g['phase']='finished';return
     roster=players(room)
     if len(roster)<4:raise ValueError('Нужны минимум четыре игрока')
     g['round']+=1;g['eligible']=roster;g['order']=list(roster);g['spy']=random.choice(g['order']);g['location']=random.choice(LOCATIONS)
@@ -57,9 +58,9 @@ def action(room,token,kind,value):
     raise ValueError('Сейчас это действие недоступно')
 def view(room,token):
     update(room);g=room['party'];asker,target=pair(g);phase=g['phase']
-    result={'game_id':'spy','title':'Шпион','instance':g['instance'],'round':g['round'],'phase':phase,'eligible':token in g['eligible'],'remaining':max(0,int(g['deadline']-time.time()+.999)),'is_spy':token==g['spy'],'is_asker':token==asker,'is_target':token==target,'asker':g['eligible'][asker],'target':g['eligible'][target],'question':g['question'],'questions':QUESTIONS,'history':g['history'],'voted':token in g['votes'],'votes_count':len(g['votes']),'players_count':len(g['eligible']),'scores':sorted(g['scores'].values(),key=lambda v:-v['score'])}
+    result={'game_id':'spy','title':'Шпион','instance':g['instance'],'round':g['round'],'total':g['total_rounds'],'phase':phase,'eligible':token in g['eligible'],'remaining':max(0,int(g['deadline']-time.time()+.999)),'is_spy':token==g['spy'],'is_asker':token==asker,'is_target':token==target,'asker':g['eligible'][asker],'target':g['eligible'][target],'question':g['question'],'questions':QUESTIONS,'history':g['history'],'voted':token in g['votes'],'votes_count':len(g['votes']),'players_count':len(g['eligible']),'scores':sorted(g['scores'].values(),key=lambda v:-v['score'])}
     if token in g['eligible'] and token!=g['spy']:result['location']=g['location']
     if phase in ('discuss','locate') and token==g['spy']:result['locations']=LOCATIONS
     if phase=='vote':result['choices']=[{'id':g['ids'][k],'text':name,'own':token==k} for k,name in g['eligible'].items()]
-    if phase=='result':result.update({'location':g['location'],'spy_name':g['eligible'][g['spy']],'winner':g['winner']})
+    if phase in ('result','finished'):result.update({'location':g['location'],'spy_name':g['eligible'][g['spy']],'winner':g['winner']})
     return result
