@@ -295,9 +295,9 @@ class CodenamesAction(Credentials):
     seconds: Literal[0, 60, 90, 120, 180, 300] = 0
     team_count: Literal[2, 3] = 2
     theme: Literal['normal', 'minecraft', 'cs2', 'dota2'] = 'normal'
-    time_red: int = Field(default=0, ge=0, le=3600)
-    time_blue: int = Field(default=0, ge=0, le=3600)
-    time_green: int = Field(default=0, ge=0, le=3600)
+    time_red: int = Field(default=60, ge=0, le=3600)
+    time_blue: int = Field(default=60, ge=0, le=3600)
+    time_green: int = Field(default=60, ge=0, le=3600)
     bonus: int = Field(default=0, ge=0, le=120)
     text: str = Field(default='', max_length=200)
     word: str = Field(default='', max_length=200)

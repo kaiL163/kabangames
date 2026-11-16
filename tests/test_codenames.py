@@ -133,8 +133,9 @@ class CodenamesTests(unittest.TestCase):
     def test_timer_and_restart_instance(self):
         room=self.started();g=room['codenames'];g['clocks']={team:60 for team in cn.teams(g)};g['running_since']=time.time()-61
         old=g['turn'];cn.tick(g)
-        self.assertEqual(g['winner'],cn.other(old));self.assertEqual(g['phase'],'finished')
-        self.assertEqual(g['eliminated'],[old])
+        self.assertEqual(g['turn'],cn.other(old));self.assertEqual(g['phase'],'clue')
+        self.assertEqual(g['eliminated'],[]);self.assertIsNone(g['winner'])
+        self.assertEqual(g['clocks'][old],60)
         stale=request(g,'ready');cn.action(room,'rc',request(g,'reset'))
         with self.assertRaises(ValueError):cn.action(room,'rc',stale)
         self.assertEqual(room['codenames']['phase'],'setup')
@@ -165,9 +166,9 @@ class CodenamesTests(unittest.TestCase):
         for actual,visible in zip(g['cards'],cn.view(room,token)['cards']):
             self.assertEqual(visible['color'],actual['color'] if actual['color'] in ('red','blue','assassin') else None)
 
-    def test_individual_time_banks_bonus_and_penalty_pause(self):
+    def test_individual_turn_limits_reset_and_penalty_pause(self):
         room=self.make_room();g=room['codenames']
-        cn.action(room,'rc',request(g,'configure',time_red=120,time_blue=300,bonus=15))
+        cn.action(room,'rc',request(g,'configure',time_red=120,time_blue=300))
         for seat in g['seats'].values():seat['ready']=True
         with patch.object(cn.time,'time',return_value=100):cn.begin(room)
         first=g['turn'];opponent=cn.other(first);initial=g['clocks'][first]
@@ -175,16 +176,19 @@ class CodenamesTests(unittest.TestCase):
             self.assertEqual(cn.clocks(g)[first],initial-10)
             self.assertEqual(cn.clocks(g)[opponent],g['time_limits'][opponent])
             cn.next_turn(g)
-        self.assertEqual(g['clocks'][first],initial+5)
-        with patch.object(cn.time,'time',return_value=120):cn.next_turn(g,bonus=False,penalty=True)
+        self.assertEqual(g['clocks'][first],initial)
+        self.assertEqual(g['clocks'][g['turn']],g['time_limits'][g['turn']])
+        with patch.object(cn.time,'time',return_value=120):cn.next_turn(g,penalty=True)
         with patch.object(cn.time,'time',return_value=999):
             before=cn.clocks(g);cn.tick(g)
             self.assertEqual(cn.clocks(g),before);self.assertEqual(g['phase'],'penalty')
 
-    def test_three_team_timeout_continues_with_two(self):
+    def test_three_team_timeout_passes_without_eliminating(self):
         room=self.make_room(three=True);g=room['codenames'];cn.begin(room)
         lost=g['turn'];g['clocks'][lost]=0;cn.tick(g)
-        self.assertEqual(g['eliminated'],[lost]);self.assertEqual(g['phase'],'clue')
+        self.assertEqual(g['eliminated'],[]);self.assertEqual(g['phase'],'clue')
+        self.assertEqual(g['clocks'][lost],60)
+        self.assertFalse(any(c['revealed'] for c in g['cards']))
         self.assertNotEqual(g['turn'],lost)
 
     def test_themed_decks_and_removing_third_team(self):
@@ -195,6 +199,28 @@ class CodenamesTests(unittest.TestCase):
         cn.action(room,'rc',request(g,'configure',team_count=2))
         self.assertFalse(cn.seats(g,'green'))
         self.assertNotIn('green',cn.view(room,'rc')['teams'])
+
+    def test_default_minute_restarts_every_round_and_clue_keeps_time(self):
+        room=self.make_room();g=room['codenames']
+        self.assertTrue(all(value==60 for value in g['time_limits'].values()))
+        with patch.object(cn.time,'time',return_value=100):cn.begin(room)
+        first=g['turn']
+        with patch.object(cn.time,'time',return_value=120):
+            self.give_clue(room)
+            self.assertEqual(cn.clocks(g)[first],40)
+            cn.next_turn(g)
+        with patch.object(cn.time,'time',return_value=150):cn.next_turn(g)
+        self.assertEqual(g['turn'],first)
+        with patch.object(cn.time,'time',return_value=150):self.assertEqual(cn.clocks(g)[first],60)
+
+    def test_old_time_banks_migrate_to_one_minute_turns(self):
+        room=self.started();g=room['codenames']
+        g.pop('timer_mode');g['time_limits']={team:600 for team in cn.teams(g)}
+        g['clocks']={team:3 for team in cn.teams(g)}
+        with patch.object(cn.time,'time',return_value=100):
+            cn.tick(g)
+            self.assertEqual(cn.clocks(g)[g['turn']],60)
+            self.assertEqual(g['timer_mode'],'turn')
 
     def test_serialization_does_not_publish_secrets(self):
         import json

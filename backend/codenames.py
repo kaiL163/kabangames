@@ -28,12 +28,14 @@ def migrate(game):
     game.setdefault('team_count',2);game.setdefault('theme','normal');game.setdefault('bonus',0)
     game.setdefault('time_limits',{team:game.get('seconds',0) for team in TEAMS})
     game.setdefault('eliminated',[])
+    if game.get('timer_mode')!='turn':
+        game.update(timer_mode='turn',bonus=0,time_limits={team:60 for team in TEAMS},clocks={team:60 for team in teams(game)},running_since=time.time() if game['phase'] in ('clue','guess') else None)
     if 'clocks' not in game:
         game['clocks']={team:(max(0,game['deadline']-time.time()) if team==game.get('turn') and game.get('deadline') else game.get('seconds') or None) for team in teams(game)}
         game['running_since']=time.time() if game['phase'] in ('clue','guess') else None
 
 def setup(room):
-    room['codenames']={'instance':secrets.token_hex(12),'phase':'setup','seats':{},'traitor':False,'seconds':0,'team_count':2,'theme':'normal','bonus':0,'time_limits':{team:0 for team in TEAMS},'clocks':{},'running_since':None,'eliminated':[],'cards':[],'turn_number':0,'history':[],'clue':None,'winner':None,'reason':'','deadline':None}
+    room['codenames']={'instance':secrets.token_hex(12),'phase':'setup','seats':{},'traitor':False,'seconds':0,'team_count':2,'theme':'normal','bonus':0,'timer_mode':'turn','time_limits':{team:60 for team in TEAMS},'clocks':{},'running_since':None,'eliminated':[],'cards':[],'turn_number':0,'history':[],'clue':None,'winner':None,'reason':'','deadline':None}
 
 def clocks(game,now=None):
     now=time.time() if now is None else now
@@ -54,10 +56,11 @@ def following(game):
     order=teams(game);index=order.index(game['turn'])
     return next(order[(index+step)%len(order)] for step in range(1,len(order)+1) if order[(index+step)%len(order)] not in game['eliminated'])
 
-def next_turn(game,bonus=True,penalty=False):
+def next_turn(game,penalty=False):
     previous=game['turn'];settle(game)
-    if bonus and previous not in game['eliminated'] and game['clocks'].get(previous) is not None:game['clocks'][previous]+=game['bonus']
+    if previous not in game['eliminated']:game['clocks'][previous]=game['time_limits'][previous] or None
     game['turn']=following(game);game['turn_number']+=1
+    game['clocks'][game['turn']]=game['time_limits'][game['turn']] or None
     game.update(phase='penalty' if penalty else 'clue',clue=None,running_since=None if penalty else time.time(),deadline=None)
 
 def eliminate(game,reason):
@@ -68,12 +71,13 @@ def eliminate(game,reason):
         if card['color']==team:card['revealed']=True
     log(game,f'{NAMES[team]} выбыли: {reason}')
     if len(alive(game))==1:finish(game,alive(game)[0],f'{NAMES[alive(game)[0]]} — последняя команда в игре. {reason}')
-    else:next_turn(game,bonus=False)
+    else:next_turn(game)
 
 def tick(game):
     migrate(game)
     if game['phase'] in ('clue','guess') and clocks(game).get(game['turn']) is not None and clocks(game)[game['turn']]<=0:
-        eliminate(game,'закончилось время команды.')
+        log(game,f'Время команды «{NAMES[game["turn"]]}» истекло. Ход переходит дальше.')
+        next_turn(game)
 
 def begin(room):
     game=room['codenames'];roster=people(room)
@@ -106,7 +110,7 @@ def action(room,token,body):
             if not host:raise ValueError('Настройки меняет ведущий')
             theme=getattr(body,'theme',game['theme']);count=getattr(body,'team_count',game['team_count'])
             if theme not in THEMES or count not in (2,3):raise ValueError('Проверьте тему и число команд')
-            game.update(traitor=body.traitor,theme=theme,team_count=count,bonus=getattr(body,'bonus',0),time_limits={team:getattr(body,'time_'+team,0) for team in TEAMS})
+            game.update(traitor=body.traitor,theme=theme,team_count=count,bonus=0,time_limits={team:getattr(body,'time_'+team,60) for team in TEAMS})
             game['seats']={key:seat for key,seat in game['seats'].items() if seat['team'] in teams(game)}
             for seat in game['seats'].values():seat['ready']=False
             return
@@ -138,7 +142,7 @@ def action(room,token,body):
     if kind=='invalid_clue':
         if game['phase']!='guess' or not(host or current and seat['role']=='captain'):raise ValueError('Нарушение подтверждает ведущий или капитан, давший шифр')
         log(game,'Шифр признан неверным. Следующая команда бесплатно открывает своё слово.')
-        next_turn(game,bonus=False,penalty=True);return
+        next_turn(game,penalty=True);return
     if kind=='end_turn':
         if not current or seat['role']=='captain' or game['phase']!='guess':raise ValueError('Ход завершают угадывающие игроки текущей команды')
         log(game,'Команда завершила ход.');next_turn(game);return
