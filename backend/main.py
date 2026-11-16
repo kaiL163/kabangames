@@ -438,6 +438,8 @@ def detective_view(progress):
         return None
     opened = set(progress['opened'])
     return {
+        'instance': progress.setdefault('instance', secrets.token_hex(12)),
+        'board': progress.setdefault('board', {'cards': {}, 'links': [], 'timeline': []}),
         'title': CASE['title'], 'intro': CASE['intro'],
         'items': [{**{k: item[k] for k in ('id', 'group', 'title', 'icon')},
                    'text': item['text'] if item['id'] in opened else None,
@@ -459,7 +461,7 @@ async def detective_start(body: Credentials):
             raise HTTPException(403, 'Только ведущий начинает дело')
         require_game(room, 'detective')
         require_ready(room)
-        room['detective'] = {'opened': [], 'result': None, 'theories': {}}
+        room['detective'] = {'instance': secrets.token_hex(12), 'board': {'cards': {}, 'links': [], 'timeline': []}, 'opened': [], 'result': None, 'theories': {}}
         room['state'] = None
         room['quiz'] = None
         room['writing'] = None
@@ -483,6 +485,61 @@ async def detective_inspect(body: Inspect):
         if body.item_id not in progress['opened']:
             progress['opened'].append(body.item_id)
         return detective_view(progress)
+
+class BoardAction(Credentials):
+    instance: str = Field(max_length=40)
+    action: Literal['pin', 'move', 'remove', 'link', 'unlink', 'event', 'delete_event']
+    item_id: str = Field(default='', max_length=40)
+    target: str = Field(default='', max_length=40)
+    entry_id: str = Field(default='', max_length=40)
+    label: str = Field(default='', max_length=120)
+    time: str = Field(default='', pattern=r'^(?:[0-2][0-9]:[0-5][0-9])?$')
+    text: str = Field(default='', max_length=300)
+    x: int = Field(default=30, ge=0, le=800)
+    y: int = Field(default=30, ge=0, le=500)
+
+@app.post('/api/detective/board')
+async def detective_board(body: BoardAction):
+    async with lock:
+        room = get_room(body.code)
+        is_host = authenticate(room, body.token)
+        progress = room.get('detective')
+        if not progress or body.instance != progress.setdefault('instance', secrets.token_hex(12)):
+            raise HTTPException(409, 'Расследование сменилось. Обновите страницу.')
+        if progress['result'] is not None:
+            raise HTTPException(409, 'Дело закрыто. Доска доступна для просмотра.')
+        board = progress.setdefault('board', {'cards': {}, 'links': [], 'timeline': []})
+        if body.action in ('pin', 'move', 'remove', 'link') and body.item_id not in progress['opened']:
+            raise HTTPException(400, 'Сначала изучите этот материал')
+        if body.action == 'pin':
+            board['cards'].setdefault(body.item_id, {'x': body.x, 'y': body.y})
+        elif body.action == 'move':
+            if body.item_id not in board['cards']: raise HTTPException(409, 'Карточку сняли с доски')
+            board['cards'][body.item_id] = {'x': body.x, 'y': body.y}
+        elif body.action == 'remove':
+            board['cards'].pop(body.item_id, None)
+            board['links'] = [link for link in board['links'] if body.item_id not in (link['source'], link['target'])]
+        elif body.action == 'link':
+            if body.item_id == body.target or any(key not in board['cards'] for key in (body.item_id, body.target)):
+                raise HTTPException(400, 'Выберите две разные карточки на доске')
+            if not body.label.strip(): raise HTTPException(400, 'Подпишите связь')
+            existing = next((link for link in board['links'] if {link['source'], link['target']} == {body.item_id, body.target}), None)
+            if existing: existing['label'] = body.label.strip()
+            else:
+                if len(board['links']) >= 100: raise HTTPException(400, 'На доске уже 100 связей')
+                board['links'].append({'id': secrets.token_hex(8), 'source': body.item_id, 'target': body.target, 'label': body.label.strip()})
+        elif body.action == 'unlink':
+            board['links'] = [link for link in board['links'] if link['id'] != body.entry_id]
+        elif body.action == 'event':
+            if not body.text.strip(): raise HTTPException(400, 'Опишите событие')
+            if body.time and int(body.time[:2]) > 23: raise HTTPException(400, 'Проверьте время')
+            if body.item_id and body.item_id not in progress['opened']: raise HTTPException(400, 'Материал ещё не изучен')
+            if len(board['timeline']) >= 100: raise HTTPException(400, 'В хронологии уже 100 событий')
+            name = room['host_name'] if is_host else room['players'][body.token]['name']
+            board['timeline'].append({'id': secrets.token_hex(8), 'time': body.time, 'text': body.text.strip(), 'item_id': body.item_id, 'author': name})
+        elif body.action == 'delete_event':
+            board['timeline'] = [event for event in board['timeline'] if event['id'] != body.entry_id]
+        return {'ok': True}
 
 @app.post('/api/detective/theory')
 async def detective_theory(body: Theory):
