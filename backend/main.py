@@ -70,10 +70,12 @@ class Credentials(BaseModel):
 GAME_MODES = {game: {'party': game != 'detective', 'standalone': game == 'detective'} for game in ('detective','quiz','croc','truth','who','finish','twotruths','screenwriter','emoji','truefalse','words','cinema','filmguess','carquiz','adultquiz','spy','reaction')}
 
 class Create(BaseModel):
+    client_id: str | None = Field(default=None, min_length=20, max_length=128)
     name: str = Field(max_length=20)
     game_id: str | None = Field(default=None, max_length=20)
 
 class Join(BaseModel):
+    client_id: str | None = Field(default=None, min_length=20, max_length=128)
     code: str = Field(max_length=4)
     name: str = Field(max_length=20)
 
@@ -164,7 +166,6 @@ def prune():
         if now - room['updated'] > ROOM_LIFETIME:
             del rooms[code]
         else:
-            room['players'] = {key: player for key, player in room['players'].items() if now - player['seen'] < PLAYER_TIMEOUT}
             room['ready'] = {key: value for key, value in room['ready'].items() if key in room['players']}
 
 def get_room(code):
@@ -183,6 +184,18 @@ def authenticate(room, token):
     room['updated'] = time.monotonic()
     return host
 
+def existing_client(client_id):
+    if not client_id:
+        return None
+    for code, room in rooms.items():
+        if room.get('host_client') == client_id:
+            return {'code': code, 'token': room['host'], 'host': True, 'name': room['host_name']}
+        for token, player in room['players'].items():
+            if player.get('client_id') == client_id:
+                player['seen'] = time.monotonic()
+                return {'code': code, 'token': token, 'host': False, 'name': player['name']}
+    return None
+
 @app.get('/api/health')
 async def health():
     return {'ok': True}
@@ -196,6 +209,9 @@ async def create(body: Create):
         raise HTTPException(400, 'Введите имя ведущего')
     async with lock:
         prune()
+        existing = existing_client(body.client_id)
+        if existing:
+            return existing
         if len(rooms) >= 5000:
             raise HTTPException(503, 'Сейчас нельзя создать комнату. Попробуйте позже.')
         while True:
@@ -203,7 +219,7 @@ async def create(body: Create):
             if code not in rooms:
                 break
         token = secrets.token_urlsafe(32)
-        rooms[code] = {'host': token, 'host_name': name, 'selected_game': body.game_id, 'ready': {}, 'reactions': [], 'scores': {}, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
+        rooms[code] = {'host': token, 'host_client': body.client_id, 'host_name': name, 'selected_game': body.game_id, 'ready': {}, 'reactions': [], 'scores': {}, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
         return {'code': code, 'token': token, 'host': True, 'name': name}
 
 @app.post('/api/join')
@@ -211,6 +227,11 @@ async def join(body: Join):
     async with lock:
         prune()
         room = get_room(body.code)
+        existing = existing_client(body.client_id)
+        if existing:
+            if existing['code'] != body.code.upper():
+                raise HTTPException(409, 'Сначала выйди из текущего лобби.')
+            return existing
         name = body.name.strip()
         if not name:
             raise HTTPException(400, 'Введите имя')
@@ -220,7 +241,7 @@ async def join(body: Join):
         if len(room['players']) >= 15:
             raise HTTPException(400, 'Комната заполнена')
         token = secrets.token_urlsafe(32)
-        room['players'][token] = {'name': name, 'seen': time.monotonic()}
+        room['players'][token] = {'name': name, 'client_id': body.client_id, 'seen': time.monotonic()}
         room['updated'] = time.monotonic()
         return {'code': body.code.upper(), 'token': token, 'host': False}
 
@@ -253,9 +274,10 @@ async def manage_player(body: ManagePlayer):
         room['ready'].pop(target, None)
         if body.action == 'transfer':
             old_token, old_name = room['host'], room['host_name']
-            room['players'][old_token] = {'name': old_name, 'seen': time.monotonic(), 'public_id': secrets.token_urlsafe(12), 'camera_id': room.get('host_camera_id', secrets.token_hex(12))}
+            room['players'][old_token] = {'name': old_name, 'seen': time.monotonic(), 'public_id': secrets.token_urlsafe(12), 'camera_id': room.get('host_camera_id', secrets.token_hex(12)), 'client_id': room.get('host_client')}
             room['host_camera_id'] = player.get('camera_id', secrets.token_hex(12))
             room['host'], room['host_name'] = target, player['name']
+            room['host_client'] = player.get('client_id')
         return {'ok': True}
 
 @app.post('/api/ready')
