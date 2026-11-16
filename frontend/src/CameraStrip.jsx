@@ -7,6 +7,12 @@ function useDesktop() {
  useEffect(()=>{const query=window.matchMedia('(min-width: 1024px) and (pointer: fine)');const update=()=>setDesktop(query.matches);query.addEventListener('change',update);return()=>query.removeEventListener('change',update)},[])
  return desktop
 }
+export function AllCamerasButton(){
+ const desktop=useDesktop()
+ const {video}=useContext(CameraContext)
+ if(!desktop||!video)return null
+ return <button type="button" className="all-cameras-button" onClick={()=>{window.open(`/?cameras=${encodeURIComponent(video.code)}`,`kaban-cameras-${video.code}`,'popup=yes,width=1060,height=740,resizable=yes,scrollbars=yes')}}>Все камеры в окно ↗</button>
+}
 function CameraZoom({src,name,onClose}) {
  const dialog=useRef(null)
  useEffect(()=>{dialog.current.showModal();return()=>dialog.current?.close()},[])
@@ -28,7 +34,7 @@ export function CameraPlayers() {
  const [open,setOpen] = useState(()=>sessionStorage.getItem('kaban-cameras-open')==='true')
  if (!video) return null
  function toggle(){const next=!open;setOpen(next);sessionStorage.setItem('kaban-cameras-open',String(next))}
- return <section className="game-camera-section" aria-label="Камеры игроков"><button className="game-camera-toggle" onClick={toggle} aria-expanded={open} aria-controls="game-camera-list"><span>Камеры игроков · {players.length+1}</span><span>{open?'Свернуть ↑':'Показать ↓'}</span></button><div id="game-camera-list" className={`game-cameras ${open?'':'cameras-hidden'}`} inert={open?undefined:''}>{[{camera_id:hostCamera,name:hostName},...players].map(player=><div className="game-camera-item" key={player.camera_id}><CameraTile stream={player.camera_id} name={player.name}/><span>{player.name}</span></div>)}</div></section>
+ return <section className="game-camera-section" aria-label="Камеры игроков"><button className="game-camera-toggle" onClick={toggle} aria-expanded={open} aria-controls="game-camera-list"><span>Камеры игроков · {players.length+1}</span><span>{open?'Свернуть ↑':'Показать ↓'}</span></button><AllCamerasButton/><div id="game-camera-list" className={`game-cameras ${open?'':'cameras-hidden'}`} inert={open?undefined:''}>{[{camera_id:hostCamera,name:hostName},...players].map(player=><div className="game-camera-item" key={player.camera_id}><CameraTile stream={player.camera_id} name={player.name}/><span>{player.name}</span></div>)}</div></section>
 }
 export default function CameraStrip() {
  const {video,enabled,setEnabled,myCamera} = useContext(CameraContext)
@@ -37,7 +43,7 @@ export default function CameraStrip() {
  if (!video || !myCamera) return null
  const params = new URLSearchParams({room:video.room,password:video.password,push:myCamera,view:'',label:video.name,audiodevice:'0',webcam:'',autostart:''})
  return <aside className={`camera-publisher camera-tools ${enabled&&expanded?'preview-open':''} ${confirming&&!enabled?'confirm-open':''}`} aria-label="Моя камера">
-  <div className="camera-publisher-bar"><span className={`my-camera-icon ${enabled?'is-on':''}`} aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="6" width="12" height="12" rx="3"/><path d="m15 10 5-3v10l-5-3"/></svg></span><strong>{enabled?'Камера включена':'Камера'}</strong>{enabled?<><button onClick={()=>setExpanded(!expanded)}>{expanded?'Скрыть превью':'Превью'}</button><button onClick={()=>setEnabled(false)}>Выключить</button></>:<button onClick={()=>setConfirming(true)}>Включить</button>}</div>
+  <div className="camera-publisher-bar"><span className={`my-camera-icon ${enabled?'is-on':''}`} aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="6" width="12" height="12" rx="3"/><path d="m15 10 5-3v10l-5-3"/></svg></span><strong>{enabled?'Камера включена':'Камера'}</strong><AllCamerasButton/>{enabled?<><button onClick={()=>setExpanded(!expanded)}>{expanded?'Скрыть превью':'Превью'}</button><button onClick={()=>setEnabled(false)}>Выключить</button></>:<button onClick={()=>setConfirming(true)}>Включить</button>}</div>
   {confirming&&!enabled&&<div className="camera-publisher-confirm"><p>Разреши доступ к камере, чтобы друзья увидели тебя. Микрофон отключён.</p><button onClick={()=>{setEnabled(true);setExpanded(window.matchMedia('(min-width: 701px)').matches);setConfirming(false)}}>Продолжить</button><button onClick={()=>setConfirming(false)}>Отмена</button></div>}
   {enabled&&<div className={expanded?'camera-publisher-frame':'camera-publisher-frame collapsed'}><iframe title="Настройка моей камеры" src={`https://vdo.ninja/#${params}`} allow="camera; autoplay" referrerPolicy="no-referrer"/></div>}
  </aside>
