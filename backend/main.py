@@ -445,6 +445,7 @@ def detective_view(progress):
                    'text': item['text'] if item['id'] in opened else None,
                    'image': item.get('image') if item['id'] in opened else None,
                    'caption': item.get('caption'),
+                   'requires_ids': item.get('requires', []),
                    'portrait_position': item.get('portrait_position'),
                    'locked': not set(item.get('requires', [])).issubset(opened),
                    'requires': [i['title'] for i in CASE['items'] if i['id'] in item.get('requires', []) and i['id'] not in opened]} for item in CASE['items']],
@@ -488,7 +489,7 @@ async def detective_inspect(body: Inspect):
 
 class BoardAction(Credentials):
     instance: str = Field(max_length=40)
-    action: Literal['pin', 'move', 'remove', 'link', 'unlink', 'event', 'delete_event']
+    action: Literal['pin', 'move', 'remove', 'link', 'unlink', 'event', 'update_event', 'delete_event']
     item_id: str = Field(default='', max_length=40)
     target: str = Field(default='', max_length=40)
     entry_id: str = Field(default='', max_length=40)
@@ -530,13 +531,18 @@ async def detective_board(body: BoardAction):
                 board['links'].append({'id': secrets.token_hex(8), 'source': body.item_id, 'target': body.target, 'label': body.label.strip()})
         elif body.action == 'unlink':
             board['links'] = [link for link in board['links'] if link['id'] != body.entry_id]
-        elif body.action == 'event':
+        elif body.action in ('event', 'update_event'):
             if not body.text.strip(): raise HTTPException(400, 'Опишите событие')
             if body.time and int(body.time[:2]) > 23: raise HTTPException(400, 'Проверьте время')
             if body.item_id and body.item_id not in progress['opened']: raise HTTPException(400, 'Материал ещё не изучен')
-            if len(board['timeline']) >= 100: raise HTTPException(400, 'В хронологии уже 100 событий')
+            if body.action == 'event' and len(board['timeline']) >= 100: raise HTTPException(400, 'В хронологии уже 100 событий')
             name = room['host_name'] if is_host else room['players'][body.token]['name']
-            board['timeline'].append({'id': secrets.token_hex(8), 'time': body.time, 'text': body.text.strip(), 'item_id': body.item_id, 'author': name})
+            if body.action == 'update_event':
+                entry = next((event for event in board['timeline'] if event['id'] == body.entry_id), None)
+                if not entry: raise HTTPException(409, 'Событие уже удалено другим участником')
+                entry.update({'time': body.time, 'text': body.text.strip(), 'item_id': body.item_id, 'editor': name})
+            else:
+                board['timeline'].append({'id': secrets.token_hex(8), 'time': body.time, 'text': body.text.strip(), 'item_id': body.item_id, 'author': name})
         elif body.action == 'delete_event':
             board['timeline'] = [event for event in board['timeline'] if event['id'] != body.entry_id]
         return {'ok': True}
