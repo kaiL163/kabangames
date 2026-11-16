@@ -15,13 +15,14 @@ try:
     from .detective import CASE, ANSWERS, EXPLANATION
     from . import quiz as quiz_game
     from . import writing_game
-    from . import party, codenames
+    from . import party, codenames, tabletop
 except ImportError:
     from detective import CASE, ANSWERS, EXPLANATION
     import quiz as quiz_game
     import writing_game
     import party
     import codenames
+    import tabletop
 
 app = FastAPI(title="Kaban Games")
 rooms = {}
@@ -69,6 +70,8 @@ class Credentials(BaseModel):
     token: str = Field(max_length=128)
 
 GAME_MODES = {game: {'party': game != 'detective', 'standalone': game == 'detective'} for game in ('detective','quiz','croc','truth','who','finish','twotruths','screenwriter','emoji','truefalse','words','cinema','filmguess','carquiz','adultquiz','spy','reaction')}
+
+for mode in ('boss','domination'):GAME_MODES[mode]={'party':False,'standalone':True}
 
 GAME_MODES['codenames'] = {'party': False, 'standalone': True}
 
@@ -223,6 +226,7 @@ async def create(body: Create):
                 break
         token = secrets.token_urlsafe(32)
         rooms[code] = {'host': token, 'host_client': body.client_id, 'host_name': name, 'selected_game': body.game_id, 'ready': {}, 'reactions': [], 'scores': {}, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
+        if body.game_id in ('boss','domination'):tabletop.setup(rooms[code],body.game_id)
         if body.game_id == 'codenames': codenames.setup(rooms[code])
         return {'code': code, 'token': token, 'host': True, 'name': name}
 
@@ -242,7 +246,7 @@ async def join(body: Join):
         existing_names = [room['host_name'], *[p['name'] for p in room['players'].values()]]
         if name.casefold() in {n.casefold() for n in existing_names}:
             raise HTTPException(400, 'Этот ник уже занят в лобби')
-        if len(room['players']) >= 15:
+        if len(room['players']) >= (24 if room.get('selected_game')=='domination' else 15):
             raise HTTPException(400, 'Комната заполнена')
         token = secrets.token_urlsafe(32)
         room['players'][token] = {'name': name, 'client_id': body.client_id, 'seen': time.monotonic()}
@@ -258,7 +262,7 @@ async def state(body: Credentials):
         state = room['state']
         if state is not None and not is_host:
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
-        return {'codenames': codenames.view(room, body.token), 'selected_game': room.get('selected_game'), 'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'codenames' if room.get('selected_game') == 'codenames' else 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
+        return {'tabletop':tabletop.view(room,body.token), 'codenames': codenames.view(room, body.token), 'selected_game': room.get('selected_game'), 'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': room['selected_game'] if room.get('selected_game') in ('boss','domination') else 'codenames' if room.get('selected_game') == 'codenames' else 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
 
 
 class ManagePlayer(Credentials):
@@ -276,6 +280,7 @@ async def manage_player(body: ManagePlayer):
             raise HTTPException(404, 'Игрок уже вышел из комнаты')
         player = room['players'].pop(target)
         if room.get('codenames', {}).get('phase') == 'setup': room['codenames']['seats'].pop(target, None)
+        if body.action=='kick' and room.get('tabletop', {}).get('phase') == 'setup': room['tabletop']['members'].pop(target,None)
         room['ready'].pop(target, None)
         if body.action == 'transfer':
             old_token, old_name = room['host'], room['host_name']
@@ -314,6 +319,29 @@ async def codenames_action(body: CodenamesAction):
         try: codenames.action(room, body.token, body)
         except ValueError as error: raise HTTPException(409, str(error))
         return {'ok': True}
+
+class TabletopAction(Credentials):
+    instance: str = Field(max_length=40)
+    revision: int = Field(ge=0)
+    action: Literal['seat','ready','configure','start','reset','advance','chat','show','check','vote','send','reward','done','invest','shield','eco','research','build','transfer','sanction','attack']
+    team: str = Field(default='join',max_length=16)
+    target: str = Field(default='',max_length=32)
+    city: str = Field(default='',max_length=2)
+    text: str = Field(default='',max_length=500)
+    seconds: int = Field(default=300,ge=60,le=1800)
+    amount: int = Field(default=0,ge=-1000,le=1000)
+
+@app.post('/api/tabletop/action')
+async def tabletop_action(body:TabletopAction):
+    async with lock:
+        room=get_room(body.code)
+        authenticate(room,body.token)
+        if room.get('selected_game') not in ('boss','domination'):
+            raise HTTPException(403,'Создайте отдельную комнату для этой игры')
+        if not room.get('tabletop'):tabletop.setup(room,room['selected_game'])
+        try:tabletop.action(room,body.token,body.model_dump())
+        except ValueError as error:raise HTTPException(409,str(error))
+        return {'ok':True}
 
 @app.post('/api/ready')
 async def set_ready(body: Credentials):
@@ -630,6 +658,7 @@ async def leave(body: Credentials):
         else:
             room['players'].pop(body.token, None)
             if room.get('codenames', {}).get('phase') == 'setup': room['codenames']['seats'].pop(body.token, None)
+            if room.get('tabletop', {}).get('phase') == 'setup': room['tabletop']['members'].pop(body.token,None)
             room['ready'].pop(body.token, None)
         return {'ok': True}
 
