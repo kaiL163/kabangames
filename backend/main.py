@@ -67,8 +67,11 @@ class Credentials(BaseModel):
     code: str = Field(max_length=4)
     token: str = Field(max_length=128)
 
+GAME_MODES = {game: {'party': game != 'detective', 'standalone': game == 'detective'} for game in ('detective','quiz','croc','truth','who','finish','twotruths','screenwriter','emoji','truefalse','words','cinema','filmguess','carquiz','adultquiz','spy','reaction')}
+
 class Create(BaseModel):
     name: str = Field(max_length=20)
+    game_id: str | None = Field(default=None, max_length=20)
 
 class Join(BaseModel):
     code: str = Field(max_length=4)
@@ -124,6 +127,12 @@ class Theory(Credentials):
 class Accusation(Credentials):
     answers: dict[str, str]
 
+
+def require_game(room, game_id):
+    if room.get('selected_game') and room['selected_game'] != game_id:
+        raise HTTPException(403, 'Эта комната создана для другой игры')
+    if not room.get('selected_game') and not GAME_MODES.get(game_id, {}).get('party'):
+        raise HTTPException(403, 'Эта игра доступна только в отдельной комнате')
 
 def require_ready(room):
     connected = [token for token, player in room['players'].items() if time.monotonic() - player['seen'] < 20]
@@ -181,6 +190,8 @@ async def health():
 @app.post('/api/create')
 async def create(body: Create):
     name = body.name.strip()
+    if body.game_id is not None and not GAME_MODES.get(body.game_id, {}).get('standalone'):
+        raise HTTPException(400, 'Игра недоступна')
     if not name:
         raise HTTPException(400, 'Введите имя ведущего')
     async with lock:
@@ -192,7 +203,7 @@ async def create(body: Create):
             if code not in rooms:
                 break
         token = secrets.token_urlsafe(32)
-        rooms[code] = {'host': token, 'host_name': name, 'ready': {}, 'reactions': [], 'scores': {}, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
+        rooms[code] = {'host': token, 'host_name': name, 'selected_game': body.game_id, 'ready': {}, 'reactions': [], 'scores': {}, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
         return {'code': code, 'token': token, 'host': True, 'name': name}
 
 @app.post('/api/join')
@@ -222,7 +233,7 @@ async def state(body: Credentials):
         state = room['state']
         if state is not None and not is_host:
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
-        return {'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
+        return {'selected_game': room.get('selected_game'), 'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
 
 
 class ManagePlayer(Credentials):
@@ -275,6 +286,8 @@ async def update(body: Update):
         room = get_room(body.code)
         if not authenticate(room, body.token):
             raise HTTPException(403, 'Только ведущий управляет игрой')
+        if body.state:
+            require_game(room, body.state.game_id)
         archive_scores(room)
         room['state'] = body.state.model_dump() if body.state else None
         room['detective'] = None
@@ -289,6 +302,7 @@ async def quiz_start(body: QuizStart):
         prune()
         room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        require_game(room, body.game_id)
         require_ready(room)
         archive_scores(room)
         try: quiz_game.start(room, body.game_id, body.rounds)
@@ -329,6 +343,7 @@ async def writing_start(body: WritingStart):
     async with lock:
         prune(); room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        require_game(room, 'finish')
         require_ready(room)
         archive_scores(room)
         try: writing_game.start(room, body.rounds)
@@ -366,6 +381,7 @@ async def party_start(body: PartyStart):
     async with lock:
         prune(); room = get_room(body.code)
         if not authenticate(room, body.token): raise HTTPException(403, 'Только ведущий запускает игру')
+        require_game(room, body.game_id)
         require_ready(room)
         archive_scores(room)
         try: party.start(room, body.game_id, body.rounds)
@@ -419,6 +435,7 @@ async def detective_start(body: Credentials):
         room = get_room(body.code)
         if not authenticate(room, body.token):
             raise HTTPException(403, 'Только ведущий начинает дело')
+        require_game(room, 'detective')
         require_ready(room)
         room['detective'] = {'opened': [], 'result': None, 'theories': {}}
         room['state'] = None
@@ -509,6 +526,7 @@ if static.is_dir():
         return FileResponse(static / 'kaban-logo.svg', media_type='image/svg+xml')
 
     @app.get('/')
+    @app.get('/games')
     @app.get('/join')
     @app.get('/create')
     @app.get('/lobby/{code}')
