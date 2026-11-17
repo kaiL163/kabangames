@@ -74,3 +74,5 @@ body.camera-dock-active .page-shell,body.camera-dock-active .game-page,body.came
 .kaban-logo .brand-name b{font-size:inherit;letter-spacing:inherit;color:#617518}
 .kaban-logo .brand-tagline{font-size:8px;font-weight:800;letter-spacing:.18em;color:#66666b}
 @media(max-width:480px){.kaban-logo{gap:7px}.kaban-logo img{width:43px;height:43px}.kaban-logo .brand-name{font-size:17px}.kaban-logo .brand-tagline{font-size:6px;letter-spacing:.14em}}
+
+.lobby-cover{background-image:url(/images/lobby-games.webp);background-size:500% 300%;background-repeat:no-repeat;aspect-ratio:307/341}
