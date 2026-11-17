@@ -672,6 +672,7 @@ async def leave(body: Credentials):
 
 static = Path(__file__).resolve().parent / 'static'
 if static.is_dir():
+    app.mount('/images', StaticFiles(directory=static / 'images', check_dir=False), name='images')
     app.mount('/car-logos', StaticFiles(directory=static / 'car-logos', check_dir=False), name='car-logos')
     app.mount('/evidence', StaticFiles(directory=static / 'evidence', check_dir=False), name='evidence')
     app.mount('/assets', StaticFiles(directory=static / 'assets'), name='assets')
