@@ -66,3 +66,11 @@ body.camera-dock-active .page-shell,body.camera-dock-active .game-page,body.came
 @media(max-width:600px){.standalone-cover{width:100%;max-width:none}.game--cover h3{font-size:24px}}
 
 .game--cover.upcoming-game .upcoming-badge{margin-top:auto;padding-top:8px}.game--cover.upcoming-game p{margin-bottom:18px}
+
+.kaban-logo{gap:10px;line-height:1;letter-spacing:0;flex-shrink:0}
+.kaban-logo img{width:56px;height:56px;object-fit:contain}
+.kaban-logo .brand-lockup{display:flex;flex-direction:column;gap:6px}
+.kaban-logo .brand-name{font-size:21px;font-weight:900;letter-spacing:-.9px;white-space:nowrap;color:#191a24}
+.kaban-logo .brand-name b{font-size:inherit;letter-spacing:inherit;color:#617518}
+.kaban-logo .brand-tagline{font-size:8px;font-weight:800;letter-spacing:.18em;color:#66666b}
+@media(max-width:480px){.kaban-logo{gap:7px}.kaban-logo img{width:43px;height:43px}.kaban-logo .brand-name{font-size:17px}.kaban-logo .brand-tagline{font-size:6px;letter-spacing:.14em}}

@@ -68,7 +68,7 @@ async function api(action, body={}) {
 function readSession(){try{const raw=localStorage.getItem(SESSION_KEY)||sessionStorage.getItem(SESSION_KEY);const value=JSON.parse(raw);if(!value?.code||!value?.token)return null;localStorage.setItem(SESSION_KEY,JSON.stringify(value));sessionStorage.removeItem(SESSION_KEY);return value}catch{return null}}
 function saveSession(value){if(value)localStorage.setItem(SESSION_KEY,JSON.stringify(value));else localStorage.removeItem(SESSION_KEY);sessionStorage.removeItem(SESSION_KEY)}
 function browserId(){let id=localStorage.getItem('kaban-browser-id');if(!id){id=crypto.randomUUID();localStorage.setItem('kaban-browser-id',id)}return id}
-function Logo(){return <div className="logo kaban-logo"><img src="/kaban-logo.svg" alt=""/> <span className="brand-name">KABAN<br/><b>GAMES</b></span></div>}
+function Logo(){return <div className="logo kaban-logo" aria-label="KABAN GAMES — игры для своих"><img src="/images/kaban-brand-v2.webp" alt="" width="56" height="56"/> <span className="brand-lockup"><span className="brand-name">KABAN <b>GAMES</b></span><span className="brand-tagline">ИГРЫ ДЛЯ СВОИХ</span></span></div>}
 const GAME_COVERS={codenames:'/images/codenames-boars.webp',detective:'/images/detective-boar.png',domination:'/images/domination-boar.webp',monopoly:'/images/monopoly-boar.webp',hat:'/images/hat-boar.webp',bunker:'/images/bunker-boar.webp'}
 function GameArtwork({id,icon,standalone=false}){
  return GAME_COVERS[id]
