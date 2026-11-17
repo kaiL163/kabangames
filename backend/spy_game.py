@@ -18,13 +18,13 @@ def next_round(room):
     roster=players(room)
     if len(roster)<4:raise ValueError('Нужны минимум четыре игрока')
     g['round']+=1;g['eligible']=roster;g['order']=list(roster);g['spy']=random.choice(g['order']);g['location']=random.choice(LOCATIONS)
-    g.update({'turn':0,'phase':'ask','question':None,'history':[],'votes':{},'deadline':time.time()+30,'winner':None,'early':False,'ids':{k:secrets.token_urlsafe(8) for k in roster}})
+    g.update({'turn':0,'phase':'ask','question':None,'history':[],'votes':{},'deadline':time.time()+60,'winner':None,'early':False,'chat':[],'voice_done':[], 'ids':{k:secrets.token_urlsafe(8) for k in roster}})
     for k,name in roster.items():g['scores'].setdefault(k,{'name':name,'score':0})
 def pair(g):return g['order'][g['turn']%len(g['order'])],g['order'][(g['turn']+1)%len(g['order'])]
 def next_turn(g):
     g['turn']+=1;g['question']=None
     g['phase']='discuss' if g['turn']>=len(g['order']) else 'ask'
-    g['deadline']=time.time()+(15 if g['phase']=='discuss' else 30)
+    g['deadline']=time.time()+(120 if g['phase']=='discuss' else 60)
 def finish(g,winner):
     g['phase']='result';g['winner']=winner
     for k in g['eligible']:
@@ -44,7 +44,21 @@ def action(room,token,kind,value):
     update(room);g=room['party'];phase=g['phase']
     if token not in g['eligible']:raise ValueError('Вы присоединитесь в следующем раунде')
     asker,target=pair(g)
-    if kind=='ask' and phase=='ask' and token==asker and value in QUESTIONS:g['question']=value;g['phase']='answer';g['deadline']=time.time()+30;return
+    if kind=='chat' and phase in ('ask','answer','discuss'):
+        text=value.strip()
+        if not text or len(text)>500:raise ValueError('Сообщение: от 1 до 500 символов')
+        g.setdefault('chat',[]).append({'id':secrets.token_hex(8),'name':g['eligible'][token],'text':text});g['chat']=g['chat'][-100:];return
+    if kind=='ask' and phase=='ask' and token==asker:
+        text=value.strip()
+        if not text or len(text)>300:raise ValueError('Напишите вопрос до 300 символов')
+        g['question']=text;g['phase']='answer';g['deadline']=time.time()+60;return
+    if kind=='voice_answer' and phase=='answer' and token==target:
+        g['history'].append({'asker':g['eligible'][asker],'target':g['eligible'][target],'question':g['question'],'answer':'Ответ дан голосом / в Discord'});next_turn(g);return
+    if kind=='ready_vote' and phase=='discuss':
+        done=g.setdefault('voice_done',[])
+        if token not in done:done.append(token)
+        if set(g['eligible'])<=set(done):g['phase']='vote';g['deadline']=time.time()+30
+        return
     if kind=='answer' and phase=='answer' and token==target:
         if not value.strip():raise ValueError('Напишите ответ')
         g['history'].append({'asker':g['eligible'][asker],'target':g['eligible'][target],'question':g['question'],'answer':value.strip()});next_turn(g);return
@@ -58,7 +72,7 @@ def action(room,token,kind,value):
     raise ValueError('Сейчас это действие недоступно')
 def view(room,token):
     update(room);g=room['party'];asker,target=pair(g);phase=g['phase']
-    result={'game_id':'spy','title':'Шпион','instance':g['instance'],'round':g['round'],'total':g['total_rounds'],'phase':phase,'eligible':token in g['eligible'],'remaining':max(0,int(g['deadline']-time.time()+.999)),'is_spy':token==g['spy'],'is_asker':token==asker,'is_target':token==target,'asker':g['eligible'][asker],'target':g['eligible'][target],'question':g['question'],'questions':QUESTIONS,'history':g['history'],'voted':token in g['votes'],'votes_count':len(g['votes']),'players_count':len(g['eligible']),'scores':sorted(g['scores'].values(),key=lambda v:-v['score'])}
+    result={'game_id':'spy','title':'Шпион','instance':g['instance'],'round':g['round'],'total':g['total_rounds'],'phase':phase,'eligible':token in g['eligible'],'remaining':max(0,int(g['deadline']-time.time()+.999)),'is_spy':token==g['spy'],'is_asker':token==asker,'is_target':token==target,'asker':g['eligible'][asker],'target':g['eligible'][target],'chat':g.get('chat',[]),'ready_vote':token in g.get('voice_done',[]),'question':g['question'],'questions':QUESTIONS,'history':g['history'],'voted':token in g['votes'],'votes_count':len(g['votes']),'players_count':len(g['eligible']),'scores':sorted(g['scores'].values(),key=lambda v:-v['score'])}
     if token in g['eligible'] and token!=g['spy']:result['location']=g['location']
     if phase in ('discuss','locate') and token==g['spy']:result['locations']=LOCATIONS
     if phase=='vote':result['choices']=[{'id':g['ids'][k],'text':name,'own':token==k} for k,name in g['eligible'].items()]

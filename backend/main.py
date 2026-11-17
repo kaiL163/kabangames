@@ -39,6 +39,7 @@ async def load_rooms():
         now = time.monotonic()
         for code, room in restored.items():
             if time.time() - room.pop('saved_at', 0) <= 24 * 60 * 60:
+                if room.get('quiz',{}) and room['quiz'].get('id')=='adultquiz':room['quiz']=None
                 room.setdefault('ready', {})
                 room.setdefault('reactions', [])
                 room.setdefault('scores', {})
@@ -69,7 +70,7 @@ class Credentials(BaseModel):
     code: str = Field(max_length=4)
     token: str = Field(max_length=128)
 
-GAME_MODES = {game: {'party': game != 'detective', 'standalone': game == 'detective'} for game in ('detective','quiz','croc','truth','who','finish','twotruths','screenwriter','emoji','truefalse','words','cinema','filmguess','carquiz','adultquiz','spy','reaction')}
+GAME_MODES = {game: {'party': game != 'detective', 'standalone': game == 'detective'} for game in ('detective','quiz','croc','truth','who','finish','twotruths','screenwriter','emoji','truefalse','words','cinema','filmguess','carquiz','spy','reaction')}
 
 for mode in ('boss','domination'):GAME_MODES[mode]={'party':False,'standalone':True}
 
@@ -86,7 +87,7 @@ class Join(BaseModel):
     name: str = Field(max_length=20)
 
 class GameState(BaseModel):
-    game_id: str = Field(pattern='^(quiz|croc|truth|who|finish|twotruths|screenwriter|emoji|truefalse|words|cinema|filmguess|carquiz|adultquiz)$')
+    game_id: str = Field(pattern='^(quiz|croc|truth|who|finish|twotruths|screenwriter|emoji|truefalse|words|cinema|filmguess|carquiz)$')
     host_prompt: str = Field(default='', max_length=500)
     host_answer: str = Field(default='', max_length=500)
     title: str = Field(max_length=80)
@@ -97,11 +98,12 @@ class Update(Credentials):
     state: GameState | None
 
 class QuizStart(Credentials):
+    difficulty: Literal['normal','hard'] = 'hard'
     game_id: str = Field(max_length=20)
-    rounds: Literal[5, 10, 15] = 10
+    rounds: Literal[5, 10, 15, 25, 50, 100] = 10
 
 class WritingStart(Credentials):
-    rounds: Literal[5, 10, 15] = 5
+    rounds: Literal[5, 10, 15, 25, 50, 100] = 5
 
 class QuizAnswer(Credentials):
     instance: str = Field(max_length=40)
@@ -115,13 +117,13 @@ class WritingAction(Credentials):
 
 class PartyStart(Credentials):
     game_id: str = Field(max_length=20)
-    rounds: Literal[5, 10, 15] = 10
+    rounds: Literal[5, 10, 15, 25, 50, 100] = 10
 
 class PartyAction(Credentials):
     instance: str = Field(max_length=40)
     round: int = Field(ge=1)
     action: str = Field(max_length=20)
-    value: str = Field(default='', max_length=200)
+    value: str = Field(default='', max_length=500)
     facts: list[str] | None = Field(default=None, max_length=3)
     lie: int | None = None
 
@@ -390,7 +392,7 @@ async def quiz_start(body: QuizStart):
         require_game(room, body.game_id)
         require_ready(room)
         archive_scores(room)
-        try: quiz_game.start(room, body.game_id, body.rounds)
+        try: quiz_game.start(room, body.game_id, body.rounds, body.difficulty)
         except ValueError as error: raise HTTPException(400, str(error))
         room['state'] = None
         room['detective'] = None
