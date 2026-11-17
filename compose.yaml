@@ -5,9 +5,51 @@ services:
       - "${PORT:-8000}:8000"
     environment:
       PORT: 8000
+      DATABASE_HOST: postgres
+      POSTGRES_USER: kaban
+      POSTGRES_DB: kaban
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kaban-local-db}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - kaban-data:/data
+    networks: [default, storage]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: kaban
+      POSTGRES_DB: kaban
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kaban-local-db}
+    volumes:
+      - kaban-postgres:/var/lib/postgresql/data
+    networks: [storage]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U kaban -d kaban']
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    networks: [storage]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 15
     restart: unless-stopped
 
 volumes:
   kaban-data:
+  kaban-postgres:
+
+networks:
+  storage:
+    internal: true
