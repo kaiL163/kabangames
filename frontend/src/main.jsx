@@ -74,9 +74,7 @@ const LOBBY_COVERS=['quiz','croc','truth','who','finish','twotruths','screenwrit
 function GameArtwork({id,icon,standalone=false}){
  const sprite=LOBBY_COVERS.indexOf(id)
  if(sprite!==-1)return (
-  <span className="lobby-cover-frame" aria-hidden="true">
-   <span className="lobby-cover" style={{backgroundPosition:`${(sprite%5)*25}% ${Math.floor(sprite/5)*50}%`}}/>
-  </span>
+  <span className="lobby-cover" aria-hidden="true" style={{backgroundPosition:`${(sprite%5)*25}% ${Math.floor(sprite/5)*50}%`}}/>
  )
  return GAME_COVERS[id]
   ? <img className={standalone?'standalone-cover':'game-cover'} src={GAME_COVERS[id]} alt="" width="1536" height="1024" loading="lazy"/>
