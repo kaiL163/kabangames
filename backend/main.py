@@ -3,6 +3,7 @@ import secrets
 import time
 import json
 import os
+import mimetypes
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -671,6 +672,7 @@ async def leave(body: Credentials):
         return {'ok': True}
 
 static = Path(__file__).resolve().parent / 'static'
+mimetypes.add_type('image/webp', '.webp')
 if static.is_dir():
     app.mount('/images', StaticFiles(directory=static / 'images', check_dir=False), name='images')
     app.mount('/car-logos', StaticFiles(directory=static / 'car-logos', check_dir=False), name='car-logos')
