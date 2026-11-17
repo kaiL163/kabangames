@@ -81,7 +81,7 @@ export function AccountPage({mode}) {
   const {profile, loading, loadError} = useAccount()
   if (loading) return <main className="page-shell"><p>Загружаем аккаунт…</p></main>
   if (mode === 'profile' && !profile) {
-    return loadError ? <main className="page-shell"><p role="alert">Не удалось загрузить профиль.</p><Link to="/">На главную</Link></main>
+    return loadError ? <main className="page-shell"><p role="alert">Не удалось загрузить профиль.</p><Link className="back-link" to="/"><span className="link-icon" aria-hidden="true">←</span> На главную</Link></main>
       : <Navigate to="/account/login" replace/>
   }
   if (mode !== 'profile' && profile) return <Navigate to="/profile" replace/>
@@ -169,7 +169,7 @@ function AccountForm({mode}) {
   }
 
   return <main className="page-shell">
-    <Link className="back-link" to="/">← На главную</Link>
+    <Link className="back-link" to="/"><span className="link-icon" aria-hidden="true">←</span> На главную</Link>
     <section className="join-panel account-panel">
       <h1>{editing ? 'Профиль' : registering ? 'Регистрация' : 'Вход'}</h1>
       {editing && <p>Логин: <strong>{profile.username}</strong></p>}

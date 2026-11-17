@@ -102,3 +102,38 @@ body.camera-dock-active .page-shell,body.camera-dock-active .game-page,body.came
 .party-hero-slogan{display:block;margin-top:6px;font-size:clamp(17px,2.5vw,30px);font-weight:900;letter-spacing:-.035em;line-height:1.1}
 .party-hero-slogan strong{display:inline-block;white-space:nowrap;font-weight:inherit}
 .party-hero-slogan strong:last-child{color:var(--lime)}
+
+.home-actions{gap:10px}
+.home-join,.back-link,.account-panel .text-button,.detective-app .dc-notice button,.detective-app .dc-footer button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  min-height:36px;
+  padding:6px 11px;
+  border:1px solid #d5d7c9;
+  border-radius:12px;
+  background:#eeeee5;
+  color:var(--ink);
+  font:inherit;
+  font-size:.8125rem;
+  font-weight:700;
+  line-height:1.25;
+  text-decoration:none;
+  cursor:pointer;
+}
+.home-join:hover,.back-link:hover,.account-panel .text-button:enabled:hover,.detective-app .dc-notice button:hover,.detective-app .dc-footer button:hover{
+  border-color:#9bb646;
+  background:#e9f3c9;
+}
+.home-join:focus-visible,.back-link:focus-visible,.account-panel .text-button:focus-visible,.detective-app .dc-notice button:focus-visible,.detective-app .dc-footer button:focus-visible{
+  outline:2px solid #627725;
+  outline-offset:3px;
+}
+.link-icon{display:grid;place-items:center;width:23px;height:23px;flex:none;border-radius:8px;background:#dfe3d4;font-weight:900}
+.home-join:hover .link-icon,.back-link:hover .link-icon{background:var(--lime)}
+.account-panel .text-button:disabled{cursor:default;opacity:.55}
+.account-panel .account-danger>.text-button{color:#92251e;border-color:#dabbb5;background:#f7ebe8}
+.account-panel .account-danger>.text-button:enabled:hover{border-color:#b65e54;background:#f8dfda}
+.detective-app .dc-notice button,.detective-app .dc-footer button{color:#32483b}
+@media(max-width:480px){.home-join,.back-link,.account-panel .text-button{min-height:44px}}
