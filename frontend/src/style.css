@@ -95,3 +95,10 @@ body.camera-dock-active .page-shell,body.camera-dock-active .game-page,body.came
 @media(min-width:600px){.lobby-games{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(min-width:820px){.lobby-games{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(min-width:1060px){.lobby-games{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+.party-hero-art{position:relative;width:100%;max-width:540px;aspect-ratio:1;margin:0 auto;border-radius:28px;overflow:hidden;background:#28182b}
+.party-hero-art img{display:block;width:100%;height:100%;object-fit:cover}
+.party-hero-art figcaption{position:absolute;top:0;left:0;right:0;padding:clamp(16px,2vw,26px);color:#fffdf5;font-size:clamp(9px,1.2vw,11px);font-weight:900;letter-spacing:.1em;line-height:1.5}
+.party-hero-slogan{display:block;margin-top:6px;font-size:clamp(17px,2.5vw,30px);font-weight:900;letter-spacing:-.035em;line-height:1.1}
+.party-hero-slogan strong{display:inline-block;white-space:nowrap;font-weight:inherit}
+.party-hero-slogan strong:last-child{color:var(--lime)}
