@@ -10,6 +10,8 @@ services:
       POSTGRES_DB: kaban
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kaban-local-db}
       REDIS_URL: redis://redis:6379/0
+      VK_ID_APP_ID: ${VK_ID_APP_ID:-54905130}
+      VK_ID_REDIRECT_URL: ${VK_ID_REDIRECT_URL:-https://games.kaban4ik.xyz/api/account/oauth/vk/callback}
     depends_on:
       postgres:
         condition: service_healthy

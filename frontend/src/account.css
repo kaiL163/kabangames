@@ -3,6 +3,7 @@ header .account-nav{display:inline-flex;align-items:center;gap:7px;font-weight:8
 .join-panel.account-panel h1{font-size:clamp(32px,7vw,54px);overflow-wrap:anywhere}
 .account-panel form input{width:100%;box-sizing:border-box}
 .account-secondary{display:inline-block;margin-top:22px;padding:0}
+.account-panel .account-vk{display:flex;width:100%;margin-top:12px;background:#0875e1;color:#fff}
 .account-avatar-picker{margin:20px 0 0;padding:10px 0 0;border:0;display:flex;flex-wrap:wrap;gap:8px}
 .account-avatar-picker legend{font-size:13px;font-weight:800}
 .account-avatar-picker button{display:grid;place-items:center;padding:3px;border:2px solid transparent;border-radius:50%;background:white}
