@@ -93,6 +93,15 @@ class Registration(Login, Profile):
     pass
 
 
+class NewPassword(BaseModel):
+    password: str = Field(min_length=10, max_length=128)
+
+
+class DeleteAccount(BaseModel):
+    confirmation: Literal['УДАЛИТЬ']
+    password: str = Field(default='', max_length=128)
+
+
 def password_digest(password, salt):
     return hashlib.scrypt(password.encode('utf-8'), salt=salt, n=32768, r=8, p=1,
                           maxmem=64 * 1024 * 1024).hex()
@@ -150,7 +159,7 @@ async def start_session(connection, response, request, account_id, *, require_ht
 
 
 def profile_data(row):
-    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked', 'yandex_linked')}
+    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked', 'yandex_linked', 'has_password')}
 
 
 async def current_profile(request):
@@ -172,10 +181,10 @@ async def current_profile(request):
         value = await cache.get(key)
         if value:
             cached_profile = json.loads(value)
-            if 'yandex_linked' in cached_profile:
+            if 'has_password' in cached_profile:
                 return cached_profile
     row = await db.fetchrow('''
-        SELECT username, nickname, avatar, version,
+        SELECT username, nickname, avatar, version, password_hash IS NOT NULL AS has_password,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
         FROM accounts a WHERE id = $1
@@ -198,7 +207,8 @@ async def register(body: Registration, request: Request, response: Response):
     async with db.acquire() as connection, connection.transaction():
         row = await connection.fetchrow('''
             INSERT INTO accounts (username, password_hash, nickname, avatar) VALUES ($1, $2, $3, $4)
-            ON CONFLICT (username) DO NOTHING RETURNING id, username, nickname, avatar, false AS vk_linked, false AS yandex_linked
+            ON CONFLICT (username) DO NOTHING
+            RETURNING id, username, nickname, avatar, false AS vk_linked, false AS yandex_linked, true AS has_password
         ''', body.username.lower(), f'{salt.hex()}:{digest}', body.nickname, body.avatar)
         if row is None:
             raise HTTPException(409, 'Этот логин уже занят.')
@@ -214,7 +224,7 @@ async def login(body: Login, request: Request, response: Response):
     await limit_attempts(request, 'login-ip', request.client.host if request.client else 'unknown', 60)
     await limit_attempts(request, 'login-user', username, 10)
     row = await db.fetchrow('''
-        SELECT id, username, password_hash, nickname, avatar,
+        SELECT id, username, password_hash, nickname, avatar, password_hash IS NOT NULL AS has_password,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
         FROM accounts a WHERE username = $1
@@ -225,6 +235,8 @@ async def login(body: Login, request: Request, response: Response):
     if not hmac.compare_digest(digest, expected) or not stored_hash:
         raise HTTPException(401, 'Неверный логин или пароль.')
     async with db.acquire() as connection, connection.transaction():
+        if not await connection.fetchval('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', row['id']):
+            raise HTTPException(401, 'Неверный логин или пароль.')
         await start_session(connection, response, request, row['id'])
     return profile_data(row)
 
@@ -240,13 +252,85 @@ async def update_profile(body: Profile, request: Request):
     row = await database(request).fetchrow('''
         UPDATE accounts a SET nickname = $1, avatar = $2, version = version + 1
         FROM account_sessions s WHERE a.id = s.account_id AND s.digest = $3 AND s.expires_at > now()
-        RETURNING a.username, a.nickname, a.avatar,
+        RETURNING a.username, a.nickname, a.avatar, a.password_hash IS NOT NULL AS has_password,
                   EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
     ''', body.nickname, body.avatar, session_digest(request))
     if row is None:
         raise HTTPException(401, 'Войдите в аккаунт.')
     return profile_data(row)
+
+
+async def lock_account(connection, digest):
+    return await connection.fetchrow('''
+        SELECT a.id, a.password_hash FROM accounts a JOIN account_sessions s ON s.account_id = a.id
+        WHERE s.digest = $1 AND s.expires_at > now() FOR UPDATE OF a
+    ''', digest)
+
+
+@router.post('/me/password')
+async def set_initial_password(body: NewPassword, request: Request):
+    require_same_origin(request)
+    if not session_digest(request):
+        raise HTTPException(401, 'Войдите в аккаунт.')
+    db = database(request)
+    async with db.acquire() as connection, connection.transaction():
+        account = await lock_account(connection, session_digest(request))
+        if account is None:
+            raise HTTPException(401, 'Войдите в аккаунт.')
+        if account['password_hash'] is not None:
+            raise HTTPException(409, 'У аккаунта уже есть пароль.')
+        salt = secrets.token_bytes(16)
+        digest = await hash_password(body.password, salt)
+        await connection.execute('UPDATE accounts SET password_hash = $1, version = version + 1 WHERE id = $2',
+                                 f'{salt.hex()}:{digest}', account['id'])
+    return await current_profile(request)
+
+
+@router.delete('/me/identities/{provider}')
+async def unlink_provider(provider: Provider, request: Request):
+    require_same_origin(request)
+    async with database(request).acquire() as connection, connection.transaction():
+        account = await lock_account(connection, session_digest(request))
+        if account is None:
+            raise HTTPException(401, 'Войдите в аккаунт.')
+        identities = await connection.fetch('SELECT provider FROM account_identities WHERE account_id = $1', account['id'])
+        linked = {row['provider'] for row in identities}
+        if provider in linked:
+            alternative = any(oauth_settings(request, other) for other in linked - {provider})
+            if account['password_hash'] is None and not alternative:
+                raise HTTPException(409, 'Сначала задайте пароль или привяжите другой доступный способ входа.')
+            await connection.execute('DELETE FROM account_identities WHERE account_id = $1 AND provider = $2',
+                                     account['id'], provider)
+            await connection.execute('UPDATE accounts SET version = version + 1 WHERE id = $1', account['id'])
+    return await current_profile(request)
+
+
+@router.delete('/me', status_code=204)
+async def delete_account(body: DeleteAccount, request: Request):
+    from redis.exceptions import RedisError
+
+    require_same_origin(request)
+    async with database(request).acquire() as connection, connection.transaction():
+        account = await lock_account(connection, session_digest(request))
+        if account is None:
+            raise HTTPException(401, 'Войдите в аккаунт.')
+        account_id = account['id']
+        if account['password_hash']:
+            if not body.password:
+                raise HTTPException(400, 'Введите пароль от аккаунта.')
+            await limit_attempts(request, 'delete', str(account_id), 8)
+            salt, expected = account['password_hash'].split(':')
+            if not hmac.compare_digest(await hash_password(body.password, bytes.fromhex(salt)), expected):
+                raise HTTPException(401, 'Неверный пароль.')
+        await connection.execute('DELETE FROM accounts WHERE id = $1', account_id)
+    cache = request.app.state.account_cache
+    with suppress(RedisError):
+        async for key in cache.scan_iter(match=f'kaban:profile:{account_id}:*'):
+            await cache.delete(key)
+    response = Response(status_code=204)
+    response.delete_cookie(COOKIE)
+    return response
 
 
 @router.post('/logout', status_code=204)
@@ -430,11 +514,10 @@ async def oauth_callback(provider: Provider, request: Request, state: str = '', 
         await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", f'{provider}:{subject}')
         existing = await connection.fetchval("SELECT account_id FROM account_identities WHERE provider = $1 AND subject = $2", provider, subject)
         if link_session:
-            account_id = await connection.fetchval('''
-                SELECT account_id FROM account_sessions WHERE digest = $1 AND expires_at > now() FOR UPDATE
-            ''', link_session)
-            if account_id is None:
+            account = await lock_account(connection, link_session)
+            if account is None:
                 return oauth_redirect(provider, '/account/login', 'expired')
+            account_id = account['id']
             if existing == account_id:
                 return response
             if existing is not None:
@@ -453,5 +536,12 @@ async def oauth_callback(provider: Provider, request: Request, state: str = '', 
                     INSERT INTO accounts (username, nickname) VALUES ($1, $2) RETURNING id
                 ''', f'{provider}_' + secrets.token_hex(8), nickname)
                 await connection.execute("INSERT INTO account_identities (provider, subject, account_id) VALUES ($1, $2, $3)", provider, subject, account_id)
+            else:
+                account = await connection.fetchval('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', account_id)
+                linked = await connection.fetchval('''
+                    SELECT EXISTS (SELECT FROM account_identities WHERE provider = $1 AND subject = $2 AND account_id = $3)
+                ''', provider, subject, account_id)
+                if not account or not linked:
+                    return oauth_redirect(provider, '/account/login', 'expired')
             await start_session(connection, response, request, account_id, require_https=True)
     return response

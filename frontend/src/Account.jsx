@@ -96,6 +96,8 @@ function AccountForm({mode}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  const [accountNotice, setAccountNotice] = useState('')
+  const [showDeletion, setShowDeletion] = useState(false)
   const editing = mode === 'profile'
   const registering = mode === 'register'
 
@@ -133,6 +135,39 @@ function AccountForm({mode}) {
     }
   }
 
+  async function updateAccess(path, method, data, notice) {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    setAccountNotice('')
+    setSaved(false)
+    try {
+      const updated = await accountRequest(path, method, data)
+      setProfile(updated)
+      if (updated) {
+        setParams({}, {replace: true})
+        setAccountNotice(notice)
+      } else {
+        navigate('/', {replace: true})
+      }
+    } catch (error) {
+      setError(error.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function unlink(id, name) {
+    if (window.confirm(`Отвязать ${name} от профиля Kaban Games?`)) {
+      updateAccess(`me/identities/${id}`, 'DELETE', undefined, `${name} отвязан.`)
+    }
+  }
+
+  function submitAccess(event, path, method, notice) {
+    event.preventDefault()
+    updateAccess(path, method, Object.fromEntries(new FormData(event.currentTarget)), notice)
+  }
+
   return <main className="page-shell">
     <Link className="back-link" to="/">← На главную</Link>
     <section className="join-panel account-panel">
@@ -155,22 +190,49 @@ function AccountForm({mode}) {
       </form>
       {error && <p className="room-error" role="alert">{error}</p>}
       {editing && saved && <p role="status">Профиль сохранён.</p>}
+      {editing && accountNotice && <p role="status">{accountNotice}</p>}
       {PROVIDERS.map(({id, name}) => {
         const status = params.get(id)
         const linked = editing && profile[`${id}_linked`]
         const path = `/api/account/oauth/${id}`
         const buttonClass = `button account-provider account-provider-${id}`
+        const canUnlink = editing && (profile.has_password || PROVIDERS.some(
+          other => other.id !== id && providers[other.id] && profile[`${other.id}_linked`],
+        ))
         return <React.Fragment key={id}>
           {Object.hasOwn(OAUTH_ERRORS, status) && <p className="room-error" role="alert">{name}. {OAUTH_ERRORS[status]}</p>}
-          {linked && <p role={status === 'linked' ? 'status' : undefined}>{name} привязан</p>}
+          {linked && <div className="account-identity">
+            <span role={status === 'linked' ? 'status' : undefined}>{name} привязан</span>
+            <button type="button" className="text-button" disabled={busy || !canUnlink} onClick={() => unlink(id, name)}>Отвязать {name}</button>
+          </div>}
           {providers[id] && editing && !linked && <form action={`${path}/link`} method="post">
             <button className={buttonClass} type="submit" disabled={busy}>Привязать {name}</button>
           </form>}
           {providers[id] && !editing && <a className={buttonClass} href={`${path}/start`}>Войти через {name}</a>}
         </React.Fragment>
       })}
+      {editing && !profile.has_password && <form className="account-manage" onSubmit={event => submitAccess(event, 'me/password', 'POST', 'Пароль установлен.')}>
+        <p>Задайте пароль, чтобы входить по логину и при желании отвязать последний внешний аккаунт.</p>
+        <label htmlFor="account-new-password">Новый пароль (от 10 символов)</label>
+        <input id="account-new-password" name="password" type="password" autoComplete="new-password" minLength={10} maxLength={128} required/>
+        <button className="button" disabled={busy}>Установить пароль</button>
+      </form>}
       {editing ? <button type="button" className="text-button account-secondary" disabled={busy} onClick={logout}>Выйти из аккаунта</button>
         : <Link className="back-link account-secondary" to={registering ? '/account/login' : '/account/register'}>{registering ? 'Уже есть аккаунт? Войти' : 'Создать аккаунт ↗'}</Link>}
+      {editing && <div className="account-manage account-danger">
+        <button type="button" className="text-button" aria-expanded={showDeletion} disabled={busy}
+          onClick={() => {setShowDeletion(!showDeletion);setError('')}}>{showDeletion ? 'Отмена' : 'Удалить аккаунт'}</button>
+        {showDeletion && <form onSubmit={event => submitAccess(event, 'me', 'DELETE')}>
+          <p>Профиль и привязки будут удалены без восстановления. Вы выйдете из аккаунта на всех устройствах.</p>
+          {profile.has_password && <>
+            <label htmlFor="account-delete-password">Текущий пароль</label>
+            <input id="account-delete-password" name="password" type="password" autoComplete="current-password" maxLength={128} required/>
+          </>}
+          <label htmlFor="account-delete-word">Введите «УДАЛИТЬ» для подтверждения</label>
+          <input id="account-delete-word" name="confirmation" pattern="УДАЛИТЬ" autoComplete="off" required/>
+          <button className="button account-delete" disabled={busy}>Удалить аккаунт навсегда</button>
+        </form>}
+      </div>}
     </section>
   </main>
 }
