@@ -8,12 +8,15 @@ from backend import tabletop as tt
 class TabletopTests(unittest.TestCase):
     def room(self,kind='boss',count=10):
         room={'host':'p0','host_name':'Player 0','players':{f'p{i}':{'name':f'Player {i}'} for i in range(1,count)}}
+        if kind=='domination':room={'host':'gm','host_name':'Game Master','players':{f'p{i}':{'name':f'Player {i}'} for i in range(count)}}
         tt.setup(room,kind)
         for i in range(count):
             self.act(room,f'p{i}','seat',team='join' if kind=='boss' else str(i%2))
             self.act(room,f'p{i}','ready')
+        if kind=='domination':self.act(room,'gm','ready')
         return room
     def act(self,room,token,action,**kw):
+        if room['host']=='gm' and token=='p0' and action in ('advance','start','reset'):token='gm'
         g=room['tabletop'];return tt.action(room,token,dict(instance=g['instance'],revision=g['revision'],action=action,**kw))
     def start(self,kind='boss',count=10):
         r=self.room(kind,count);self.act(r,'p0','start');return r
@@ -94,7 +97,7 @@ class TabletopTests(unittest.TestCase):
         r=self.start('domination',2);g=r['tabletop']
         self.act(r,'p0','sanction',target='1')
         self.act(r,'p0','advance')
-        self.act(r,'p0','advance');self.act(r,'p0','advance')
+        self.act(r,'p0','advance')
         self.assertEqual(g['phase'],'review')
         self.assertEqual(tt.team(g,'0')['money'],650);self.assertEqual(tt.team(g,'1')['money'],620)
         for _ in range(4):tt.view(r,'p0')
@@ -104,17 +107,20 @@ class TabletopTests(unittest.TestCase):
         r=self.start('domination',2);g=r['tabletop']
         with self.assertRaises(ValueError):self.act(r,'p0','build')
         self.act(r,'p0','research');self.act(r,'p1','shield',city='0')
-        self.act(r,'p0','advance');self.act(r,'p0','advance');self.act(r,'p0','advance');self.act(r,'p0','advance')
+        self.act(r,'p0','advance');self.act(r,'p0','advance');self.act(r,'p0','advance')
         self.act(r,'p0','build');self.assertEqual(tt.team(g,'0')['nukes'],1)
         self.act(r,'p0','attack',target='1',city='0')
         self.assertFalse(tt.team(g,'1')['cities'][0]['shield']);self.assertFalse(tt.team(g,'1')['cities'][0]['destroyed'])
         with self.assertRaises(ValueError):self.act(r,'p0','attack',target='1',city='0')
         with self.assertRaises(ValueError):self.act(r,'p0','build')
-    def test_world_team_chat_private_and_global(self):
+    def test_world_team_chat_private_and_direct(self):
         r=self.start('domination',2)
         self.act(r,'p0','chat',team='team',text='secret')
         self.assertEqual(tt.view(r,'p1')['messages'],[])
-        self.act(r,'p0','chat',team='all',text='alliance?')
+        self.act(r,'p0','advance');self.act(r,'p0','negotiate',target='1')
+        invitation=tt.view(r,'p1')['negotiations'][0]['id']
+        self.act(r,'p1','accept',negotiation=invitation)
+        self.act(r,'p0','chat',target='1',text='alliance?')
         self.assertEqual(len(tt.view(r,'p1')['messages']),1)
     def test_world_done_and_authority(self):
         r=self.start('domination',2);g=r['tabletop']
@@ -131,17 +137,18 @@ class TabletopTests(unittest.TestCase):
         for round_number in range(1,6):
             self.assertEqual(g['round'],round_number)
             self.act(r,'p0','done');self.act(r,'p1','done')
-            self.act(r,'p0','advance');self.act(r,'p0','advance')
-            if round_number<5:self.act(r,'p0','advance')
+            self.act(r,'p0','advance')
+            self.assertEqual(g['phase'],'review')
+            self.act(r,'p0','advance')
         self.assertEqual(g['phase'],'finished')
         self.assertEqual(tt.team(g,'0')['money'],1250)
 
-    def test_gm_rewards_are_public_and_bounded(self):
-        r=self.room('domination',3);self.act(r,'p0','seat',team='gm');self.act(r,'p0','ready');self.act(r,'p0','start')
-        self.act(r,'p0','reward',target='1',amount=200)
-        self.assertEqual(tt.team(r['tabletop'],'1')['money'],700)
+    def test_gm_rewards_are_private_and_bounded(self):
+        r=self.room('domination',3);self.act(r,'gm','start');self.act(r,'gm','advance');self.act(r,'gm','advance')
+        self.act(r,'gm','reward',target='1',amount=200)
+        self.assertEqual(tt.team(r['tabletop'],'1')['money'],850)
         self.assertIn('200',tt.view(r,'p1')['log'][-1]['text'])
-        with self.assertRaises(ValueError):self.act(r,'p0','reward',target='1',amount=-1000)
+        with self.assertRaises(ValueError):self.act(r,'gm','reward',target='1',amount=-1000)
         with self.assertRaises(ValueError):self.act(r,'p1','reward',target='1',amount=200)
 
     def test_serialization_stale_and_reset(self):

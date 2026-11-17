@@ -280,6 +280,9 @@ async def manage_player(body: ManagePlayer):
         target = next((token for token, player in room['players'].items() if player.get('public_id') == body.player_id), None)
         if not target:
             raise HTTPException(404, 'Игрок уже вышел из комнаты')
+        if body.action == 'transfer':
+            try: tabletop.transfer_host(room, target)
+            except ValueError as error: raise HTTPException(409, str(error))
         player = room['players'].pop(target)
         if room.get('codenames', {}).get('phase') == 'setup': room['codenames']['seats'].pop(target, None)
         if body.action=='kick' and room.get('tabletop', {}).get('phase') == 'setup': room['tabletop']['members'].pop(target,None)
@@ -323,9 +326,12 @@ async def codenames_action(body: CodenamesAction):
         return {'ok': True}
 
 class TabletopAction(Credentials):
+    comm_mode: Literal['text','voice'] = 'text'
+    talk_seconds: int = Field(default=300,ge=60,le=900)
+    negotiation: str = Field(default='',max_length=32)
     instance: str = Field(max_length=40)
     revision: int = Field(ge=0)
-    action: Literal['seat','ready','configure','start','reset','advance','chat','show','check','vote','send','reward','done','invest','shield','eco','research','build','transfer','sanction','attack']
+    action: Literal['seat','ready','configure','start','reset','advance','chat','show','check','vote','send','reward','done','invest','shield','eco','research','build','transfer','sanction','attack','negotiate','accept','decline','close','announce']
     team: str = Field(default='join',max_length=16)
     target: str = Field(default='',max_length=32)
     city: str = Field(default='',max_length=2)
