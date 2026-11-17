@@ -14,10 +14,14 @@ const avatars = {
 }
 
 const AccountContext = createContext(null)
-const VK_ERRORS = {
-  expired: 'Срок входа через ВК истёк. Попробуйте ещё раз.',
-  failed: 'Не удалось завершить вход через ВК. Попробуйте ещё раз.',
-  conflict: 'Этот ВК уже привязан к другому профилю или у вашего профиля уже есть привязка.',
+const PROVIDERS = [
+  {id: 'vk', name: 'ВК'},
+  {id: 'yandex', name: 'Яндекс ID'},
+]
+const OAUTH_ERRORS = {
+  expired: 'Срок входа истёк. Попробуйте ещё раз.',
+  failed: 'Не удалось завершить вход. Попробуйте ещё раз.',
+  conflict: 'Этот аккаунт привязан к другому профилю или у вашего профиля уже есть привязка.',
 }
 
 async function accountRequest(path, method = 'GET', data) {
@@ -38,7 +42,7 @@ export function AccountProvider({children}) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
-  const [vkEnabled, setVkEnabled] = useState(false)
+  const [providers, setProviders] = useState({})
   useEffect(() => {
     let active = true
     accountRequest('me').then(value => {
@@ -49,11 +53,11 @@ export function AccountProvider({children}) {
       if (active) setLoading(false)
     })
     accountRequest('providers').then(value => {
-      if (active) setVkEnabled(value.vk)
+      if (active) setProviders(value)
     }).catch(() => {})
     return () => {active = false}
   }, [])
-  return <AccountContext.Provider value={{profile, setProfile, loading, loadError, vkEnabled}}>{children}</AccountContext.Provider>
+  return <AccountContext.Provider value={{profile, setProfile, loading, loadError, providers}}>{children}</AccountContext.Provider>
 }
 
 export function useAccount() {
@@ -85,10 +89,9 @@ export function AccountPage({mode}) {
 }
 
 function AccountForm({mode}) {
-  const {profile, setProfile, vkEnabled} = useAccount()
+  const {profile, setProfile, providers} = useAccount()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const vkStatus = params.get('vk')
   const [avatar, setAvatar] = useState(profile?.avatar || 'brand')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -98,7 +101,7 @@ function AccountForm({mode}) {
 
   async function submit(event) {
     event.preventDefault()
-    if (vkStatus) setParams({}, {replace: true})
+    if (PROVIDERS.some(({id}) => params.has(id))) setParams({}, {replace: true})
     const data = Object.fromEntries(new FormData(event.currentTarget))
     if (editing) data.avatar = avatar
     setBusy(true)
@@ -152,12 +155,20 @@ function AccountForm({mode}) {
       </form>
       {error && <p className="room-error" role="alert">{error}</p>}
       {editing && saved && <p role="status">Профиль сохранён.</p>}
-      {Object.hasOwn(VK_ERRORS, vkStatus) && <p className="room-error" role="alert">{VK_ERRORS[vkStatus]}</p>}
-      {editing && profile.vk_linked && <p role={vkStatus === 'linked' ? 'status' : undefined}>ВК привязан</p>}
-      {vkEnabled && editing && !profile.vk_linked && <form action="/api/account/oauth/vk/link" method="post">
-        <button className="button account-vk" type="submit" disabled={busy}>Привязать ВК</button>
-      </form>}
-      {vkEnabled && !editing && <a className="button account-vk" href="/api/account/oauth/vk/start">Войти через ВК</a>}
+      {PROVIDERS.map(({id, name}) => {
+        const status = params.get(id)
+        const linked = editing && profile[`${id}_linked`]
+        const path = `/api/account/oauth/${id}`
+        const buttonClass = `button account-provider account-provider-${id}`
+        return <React.Fragment key={id}>
+          {Object.hasOwn(OAUTH_ERRORS, status) && <p className="room-error" role="alert">{name}. {OAUTH_ERRORS[status]}</p>}
+          {linked && <p role={status === 'linked' ? 'status' : undefined}>{name} привязан</p>}
+          {providers[id] && editing && !linked && <form action={`${path}/link`} method="post">
+            <button className={buttonClass} type="submit" disabled={busy}>Привязать {name}</button>
+          </form>}
+          {providers[id] && !editing && <a className={buttonClass} href={`${path}/start`}>Войти через {name}</a>}
+        </React.Fragment>
+      })}
       {editing ? <button type="button" className="text-button account-secondary" disabled={busy} onClick={logout}>Выйти из аккаунта</button>
         : <Link className="back-link account-secondary" to={registering ? '/account/login' : '/account/register'}>{registering ? 'Уже есть аккаунт? Войти' : 'Создать аккаунт ↗'}</Link>}
     </section>

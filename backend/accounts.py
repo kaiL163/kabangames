@@ -16,9 +16,10 @@ from pydantic import BaseModel, Field, field_validator
 
 router = APIRouter(prefix='/api/account')
 COOKIE = 'kaban_session'
-VK_FLOW_COOKIE = 'kaban_vk_flow'
-VK_CALLBACK = '/api/account/oauth/vk/callback'
+Provider = Literal['vk', 'yandex']
+OAUTH_PREFIX = '/api/account/oauth'
 VK_ORIGIN = 'https://id.vk.ru'
+YANDEX_ORIGIN = 'https://oauth.yandex.ru'
 SESSION_SECONDS = 30 * 86400
 password_slots = asyncio.Semaphore(3)
 Avatar = Literal['brand', 'detective', 'domination', 'hat', 'bunker', 'monopoly', 'boss', 'codenames']
@@ -149,7 +150,7 @@ async def start_session(connection, response, request, account_id, *, require_ht
 
 
 def profile_data(row):
-    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked')}
+    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked', 'yandex_linked')}
 
 
 async def current_profile(request):
@@ -171,11 +172,12 @@ async def current_profile(request):
         value = await cache.get(key)
         if value:
             cached_profile = json.loads(value)
-            if 'vk_linked' in cached_profile:
+            if 'yandex_linked' in cached_profile:
                 return cached_profile
     row = await db.fetchrow('''
         SELECT username, nickname, avatar, version,
-               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
         FROM accounts a WHERE id = $1
     ''', session['id'])
     if row is None:
@@ -196,7 +198,7 @@ async def register(body: Registration, request: Request, response: Response):
     async with db.acquire() as connection, connection.transaction():
         row = await connection.fetchrow('''
             INSERT INTO accounts (username, password_hash, nickname, avatar) VALUES ($1, $2, $3, $4)
-            ON CONFLICT (username) DO NOTHING RETURNING id, username, nickname, avatar, false AS vk_linked
+            ON CONFLICT (username) DO NOTHING RETURNING id, username, nickname, avatar, false AS vk_linked, false AS yandex_linked
         ''', body.username.lower(), f'{salt.hex()}:{digest}', body.nickname, body.avatar)
         if row is None:
             raise HTTPException(409, 'Этот логин уже занят.')
@@ -213,7 +215,8 @@ async def login(body: Login, request: Request, response: Response):
     await limit_attempts(request, 'login-user', username, 10)
     row = await db.fetchrow('''
         SELECT id, username, password_hash, nickname, avatar,
-               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
         FROM accounts a WHERE username = $1
     ''', username)
     stored_hash = row['password_hash'] if row else None
@@ -238,7 +241,8 @@ async def update_profile(body: Profile, request: Request):
         UPDATE accounts a SET nickname = $1, avatar = $2, version = version + 1
         FROM account_sessions s WHERE a.id = s.account_id AND s.digest = $3 AND s.expires_at > now()
         RETURNING a.username, a.nickname, a.avatar,
-                  EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked
+                  EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
     ''', body.nickname, body.avatar, session_digest(request))
     if row is None:
         raise HTTPException(401, 'Войдите в аккаунт.')
@@ -256,63 +260,77 @@ async def logout(request: Request):
     return response
 
 
-def vk_settings(request):
-    app_id = os.getenv('VK_ID_APP_ID', '')
-    callback = os.getenv('VK_ID_REDIRECT_URL', '')
+def oauth_settings(request, provider):
+    if provider == 'vk':
+        app_id = os.getenv('VK_ID_APP_ID', '')
+        callback = os.getenv('VK_ID_REDIRECT_URL', '')
+        secret = ''
+        origin = VK_ORIGIN
+        if not (app_id.isascii() and app_id.isdigit()):
+            return None
+    else:
+        app_id = os.getenv('YANDEX_CLIENT_ID', '')
+        secret = os.getenv('YANDEX_CLIENT_SECRET', '')
+        callback = os.getenv('YANDEX_REDIRECT_URL', '')
+        origin = YANDEX_ORIGIN
+        if not app_id or not secret:
+            return None
     url = urlsplit(callback)
-    if (app_id.isascii() and app_id.isdigit() and url.scheme == 'https'
-            and url.netloc == request.headers.get('host') and url.path == VK_CALLBACK
+    if (url.scheme == 'https' and url.netloc == request.headers.get('host')
+            and url.path == f'{OAUTH_PREFIX}/{provider}/callback'
             and not (url.query or url.fragment) and getattr(request.app.state, 'account_db', None)):
-        return app_id, callback
+        return app_id, callback, secret, origin
     return None
 
 
 @router.get('/providers')
 async def providers(request: Request):
-    return {'vk': vk_settings(request) is not None}
+    return {provider: oauth_settings(request, provider) is not None for provider in ('vk', 'yandex')}
 
 
-async def begin_vk(request, *, link=False):
+async def begin_oauth(request, provider, *, link=False):
     from redis.exceptions import RedisError
 
-    settings = vk_settings(request)
+    settings = oauth_settings(request, provider)
     if settings is None:
-        raise HTTPException(404, 'Вход через ВК на этом адресе не настроен.')
-    app_id, callback = settings
+        raise HTTPException(404, 'Этот способ входа на данном адресе не настроен.')
+    app_id, callback, _, origin = settings
     digest = session_digest(request) if link else None
     if link:
         require_same_origin(request)
         if not digest or await current_profile(request) is None:
             raise HTTPException(401, 'Сначала войдите в аккаунт Kaban Games.')
-    await limit_attempts(request, 'vk-start', request.client.host if request.client else 'unknown', 60)
+    await limit_attempts(request, f'{provider}-start', request.client.host if request.client else 'unknown', 60)
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(48)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     try:
         await request.app.state.account_cache.set(
-            f'kaban:vk:flow:{state}', json.dumps({'verifier': verifier, 'link_session': digest}), ex=600,
+            f'kaban:{provider}:flow:{state}', json.dumps({'verifier': verifier, 'link_session': digest}), ex=600,
         )
     except RedisError as error:
-        raise HTTPException(503, 'Вход через ВК временно недоступен.') from error
+        raise HTTPException(503, 'Вход через внешний сервис временно недоступен.') from error
     params = urlencode({'client_id': app_id, 'redirect_uri': callback, 'response_type': 'code',
-                        'state': state, 'code_challenge': challenge, 'code_challenge_method': 's256', 'scope': ''})
-    response = RedirectResponse(f'{VK_ORIGIN}/authorize?{params}', status_code=303)
-    response.set_cookie(VK_FLOW_COOKIE, state, max_age=600, httponly=True, secure=True,
-                        samesite='lax', path=VK_CALLBACK)
+                        'state': state, 'code_challenge': challenge,
+                        'code_challenge_method': 's256' if provider == 'vk' else 'S256',
+                        'scope': '' if provider == 'vk' else 'login:info'})
+    response = RedirectResponse(f'{origin}/authorize?{params}', status_code=303)
+    response.set_cookie(f'kaban_{provider}_flow', state, max_age=600, httponly=True, secure=True,
+                        samesite='lax', path=f'{OAUTH_PREFIX}/{provider}/callback')
     return response
 
 
-@router.get('/oauth/vk/start')
-async def vk_start(request: Request):
-    return await begin_vk(request)
+@router.get('/oauth/{provider}/start')
+async def oauth_start(provider: Provider, request: Request):
+    return await begin_oauth(request, provider)
 
 
-@router.post('/oauth/vk/link')
-async def vk_link(request: Request):
-    return await begin_vk(request, link=True)
+@router.post('/oauth/{provider}/link')
+async def oauth_link(provider: Provider, request: Request):
+    return await begin_oauth(request, provider, link=True)
 
 
-class VKLoginError(Exception):
+class OAuthLoginError(Exception):
     pass
 
 
@@ -328,80 +346,112 @@ async def vk_user(app_id, callback, code, device_id, state, verifier):
             exchange.raise_for_status()
             token = exchange.json()
             if 'error' in token or token.get('state') != state or not token.get('access_token'):
-                raise VKLoginError
+                raise OAuthLoginError
             info = await client.post(f'{VK_ORIGIN}/oauth2/user_info', params={'client_id': app_id},
                                      data={'access_token': token['access_token']})
             info.raise_for_status()
             user = info.json()['user']
             subject = str(user['user_id'])
             if not subject.isascii() or not subject.isdecimal() or len(subject) > 32 or subject != str(token['user_id']):
-                raise VKLoginError
+                raise OAuthLoginError
     except (httpx.HTTPError, KeyError, TypeError, ValueError, AttributeError) as error:
-        raise VKLoginError from error
+        raise OAuthLoginError from error
     name = user.get('first_name')
     return subject, (name.strip()[:20] or 'Игрок ВК') if isinstance(name, str) else 'Игрок ВК'
 
 
-def vk_redirect(path):
-    response = RedirectResponse(path, status_code=303, headers={'Referrer-Policy': 'no-referrer'})
-    response.delete_cookie(VK_FLOW_COOKIE, path=VK_CALLBACK, secure=True, httponly=True, samesite='lax')
+async def yandex_user(app_id, secret, code, verifier):
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            exchange = await client.post(f'{YANDEX_ORIGIN}/token', auth=(app_id, secret), data={
+                'grant_type': 'authorization_code', 'code': code, 'code_verifier': verifier,
+            })
+            exchange.raise_for_status()
+            token = exchange.json()['access_token']
+            if not isinstance(token, str) or not token.strip():
+                raise OAuthLoginError
+            info = await client.get('https://login.yandex.ru/info', params={'format': 'json'},
+                                    headers={'Authorization': f'OAuth {token}'})
+            info.raise_for_status()
+            user = info.json()
+            subject = str(user['id'])
+            if user.get('client_id') != app_id or not subject.isascii() or not subject.isdecimal() or len(subject) > 32:
+                raise OAuthLoginError
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, AttributeError) as error:
+        raise OAuthLoginError from error
+    name = user.get('first_name') or user.get('login')
+    return subject, (name.strip()[:20] or 'Игрок') if isinstance(name, str) else 'Игрок'
+
+
+def oauth_redirect(provider, path, status=None):
+    location = f'{path}?{provider}={status}' if status else path
+    response = RedirectResponse(location, status_code=303, headers={'Referrer-Policy': 'no-referrer'})
+    response.delete_cookie(f'kaban_{provider}_flow', path=f'{OAUTH_PREFIX}/{provider}/callback',
+                           secure=True, httponly=True, samesite='lax')
     return response
 
 
-@router.get('/oauth/vk/callback')
-async def vk_callback(request: Request, state: str = '', code: str = '', device_id: str = '', error: str = ''):
+@router.get('/oauth/{provider}/callback')
+async def oauth_callback(provider: Provider, request: Request, state: str = '', code: str = '',
+                         device_id: str = '', error: str = ''):
     from redis.exceptions import RedisError
 
-    settings = vk_settings(request)
-    cookie = request.cookies.get(VK_FLOW_COOKIE, '')
+    settings = oauth_settings(request, provider)
+    cookie = request.cookies.get(f'kaban_{provider}_flow', '')
     if settings is None or len(state) != 43 or not hmac.compare_digest(state.encode(), cookie.encode()):
-        return vk_redirect('/account/login?vk=expired')
+        return oauth_redirect(provider, '/account/login', 'expired')
     try:
-        raw_flow = await request.app.state.account_cache.getdel(f'kaban:vk:flow:{state}')
+        raw_flow = await request.app.state.account_cache.getdel(f'kaban:{provider}:flow:{state}')
     except RedisError:
-        return vk_redirect('/account/login?vk=failed')
+        return oauth_redirect(provider, '/account/login', 'failed')
     if raw_flow is None:
-        return vk_redirect('/account/login?vk=expired')
+        return oauth_redirect(provider, '/account/login', 'expired')
 
     flow = json.loads(raw_flow)
     link_session = flow['link_session']
     back = '/profile' if link_session else '/account/login'
-    if error or not (0 < len(code) <= 2048 and 0 < len(device_id) <= 512):
-        return vk_redirect(f'{back}?vk=failed')
+    if error or not 0 < len(code) <= 2048 or (provider == 'vk' and not 0 < len(device_id) <= 512):
+        return oauth_redirect(provider, back, 'failed')
     if link_session and link_session != session_digest(request):
-        return vk_redirect('/account/login?vk=expired')
+        return oauth_redirect(provider, '/account/login', 'expired')
+    app_id, callback, secret, _ = settings
     try:
-        subject, nickname = await vk_user(*settings, code, device_id, state, flow['verifier'])
-    except VKLoginError:
-        return vk_redirect(f'{back}?vk=failed')
+        if provider == 'vk':
+            subject, nickname = await vk_user(app_id, callback, code, device_id, state, flow['verifier'])
+        else:
+            subject, nickname = await yandex_user(app_id, secret, code, flow['verifier'])
+    except OAuthLoginError:
+        return oauth_redirect(provider, back, 'failed')
 
-    response = vk_redirect('/profile?vk=linked' if link_session else '/profile')
+    response = oauth_redirect(provider, '/profile', 'linked' if link_session else None)
     async with database(request).acquire() as connection, connection.transaction():
-        await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended('vk:' || $1, 0))", subject)
-        existing = await connection.fetchval("SELECT account_id FROM account_identities WHERE provider = 'vk' AND subject = $1", subject)
+        await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", f'{provider}:{subject}')
+        existing = await connection.fetchval("SELECT account_id FROM account_identities WHERE provider = $1 AND subject = $2", provider, subject)
         if link_session:
             account_id = await connection.fetchval('''
                 SELECT account_id FROM account_sessions WHERE digest = $1 AND expires_at > now() FOR UPDATE
             ''', link_session)
             if account_id is None:
-                return vk_redirect('/account/login?vk=expired')
+                return oauth_redirect(provider, '/account/login', 'expired')
             if existing == account_id:
                 return response
             if existing is not None:
-                return vk_redirect('/profile?vk=conflict')
+                return oauth_redirect(provider, '/profile', 'conflict')
             inserted = await connection.fetchval('''
-                INSERT INTO account_identities (provider, subject, account_id) VALUES ('vk', $1, $2)
+                INSERT INTO account_identities (provider, subject, account_id) VALUES ($1, $2, $3)
                 ON CONFLICT DO NOTHING RETURNING account_id
-            ''', subject, account_id)
+            ''', provider, subject, account_id)
             if inserted is None:
-                return vk_redirect('/profile?vk=conflict')
+                return oauth_redirect(provider, '/profile', 'conflict')
             await connection.execute('UPDATE accounts SET version = version + 1 WHERE id = $1', account_id)
         else:
             account_id = existing
             if account_id is None:
                 account_id = await connection.fetchval('''
                     INSERT INTO accounts (username, nickname) VALUES ($1, $2) RETURNING id
-                ''', 'vk_' + secrets.token_hex(10), nickname)
-                await connection.execute("INSERT INTO account_identities (provider, subject, account_id) VALUES ('vk', $1, $2)", subject, account_id)
+                ''', f'{provider}_' + secrets.token_hex(8), nickname)
+                await connection.execute("INSERT INTO account_identities (provider, subject, account_id) VALUES ($1, $2, $3)", provider, subject, account_id)
             await start_session(connection, response, request, account_id, require_https=True)
     return response

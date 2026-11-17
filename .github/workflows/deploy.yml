@@ -42,7 +42,11 @@ jobs:
           mkdir -p "$release"
           tar -xzf "$archive" -C "$release"
           cd "$release"
-          docker compose -p sbor up -d --build
+          if [ -f /opt/sbor.env ]; then
+            docker compose --env-file /opt/sbor.env -p sbor up -d --build
+          else
+            docker compose -p sbor up -d --build
+          fi
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/api/health > /dev/null; then
               echo "Site is responding."
