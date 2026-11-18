@@ -178,6 +178,7 @@ async def current_profile(request):
     ''', digest)
     if session is None:
         return None
+    request.state.account_id = session['id']
     cache = request.app.state.account_cache
     key = f"kaban:profile:{session['id']}:{session['version']}"
     with suppress(RedisError):

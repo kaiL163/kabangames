@@ -19,7 +19,7 @@ export default function Tabletop({game:g,room,onAction,onLeave,onManage,players,
  const act=body=>onAction({instance:g.instance,revision:g.revision,...body})
  const confirmAct=(message,body)=>{if(window.confirm(message))act(body)}
  return <main className={`tt-app ${hat?'tt-hat':'tt-world'}`}>
- <header className="tt-header"><Link to="/" className="tt-brand">✳ KABAN GAMES</Link><div><AccountLink game/><button onClick={()=>navigator.clipboard?.writeText(`${location.origin}/join?code=${room.code}`)}>Код {room.code} ↗</button><button onClick={()=>setHelp(true)}>Правила</button>{room.host&&<button onClick={()=>setManage(true)}>Участники</button>}<button onClick={onLeave}>{room.host?'Закрыть комнату':'Выйти'}</button></div></header>
+ <header className="tt-header"><Link to="/" className="tt-brand">✳ KABAN GAMES</Link><div><AccountLink game/>{!room.seat&&<button onClick={()=>navigator.clipboard?.writeText(`${location.origin}/join?code=${room.code}`)}>Код {room.code} ↗</button>}<button onClick={()=>setHelp(true)}>Правила</button>{room.host&&<button onClick={()=>setManage(true)}>Участники</button>}<button onClick={onLeave}>{room.host?'Закрыть комнату':'Выйти'}</button></div></header>
  <div className="tt-wrap"><div className="tt-title"><div><span className="tt-eyebrow">ОТДЕЛЬНАЯ КОМНАТА · {phases[g.phase]}{!setup&&` · РАУНД ${g.round} / ${hat?3:5}`}</span><h1>{titles[g.kind]}</h1><p>{hat?'Кому ты доверишь шапку? И кого отправишь за дверь?':'Строй планы. Договаривайся. Сохрани свою страну.'}</p></div>{g.remaining!=null&&<div className={`tt-timer ${clock<20?'urgent':''}`} aria-label="Осталось времени">◷ {timeLabel(clock)}</div>}</div>
  {error&&<p role="alert" className="tt-error">{error}</p>}
  {setup?<>

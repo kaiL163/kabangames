@@ -8,7 +8,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -17,7 +17,7 @@ try:
     from .detective import CASE, ANSWERS, EXPLANATION
     from . import quiz as quiz_game
     from . import writing_game
-    from . import party, codenames, tabletop, accounts, admin
+    from . import party, codenames, tabletop, accounts, admin, sandbox
 except ImportError:
     from detective import CASE, ANSWERS, EXPLANATION
     import quiz as quiz_game
@@ -27,6 +27,7 @@ except ImportError:
     import tabletop
     import accounts
     import admin
+    import sandbox
 
 rooms = {}
 lock = asyncio.Lock()
@@ -66,6 +67,25 @@ app.include_router(accounts.router)
 
 @app.middleware('http')
 async def persist_rooms(request: Request, call_next):
+    test_id = request.headers.get('x-kaban-test-room')
+    if test_id is not None:
+        try:
+            if not request.url.path.startswith('/api/') or request.url.path.startswith(
+                ('/api/account/', '/api/admin/')
+            ) or request.url.path in ('/api/create', '/api/join'):
+                raise HTTPException(404, 'Действие недоступно в тестовой комнате.')
+            await admin.require_admin(request)
+            session = sandbox.find(test_id, request.state.account_id)
+        except HTTPException as error:
+            return JSONResponse({'detail': error.detail}, status_code=error.status_code,
+                                headers={'Cache-Control': 'private, no-store'})
+        marker = sandbox.active_room.set(session)
+        try:
+            response = await call_next(request)
+            response.headers['Cache-Control'] = 'private, no-store'
+            return response
+        finally:
+            sandbox.active_room.reset(marker)
     response = await call_next(request)
     if request.url.path.startswith(('/api/account/', '/api/admin/')):
         response.headers['Cache-Control'] = 'private, no-store'
@@ -185,6 +205,8 @@ def archive_scores(room):
         room[key] = None
 
 def prune():
+    if sandbox.active_room.get() is not None:
+        return
     now = time.monotonic()
     for code, room in list(rooms.items()):
         if now - room['updated'] > ROOM_LIFETIME:
@@ -193,7 +215,8 @@ def prune():
             room['ready'] = {key: value for key, value in room['ready'].items() if key in room['players']}
 
 def get_room(code):
-    room = rooms.get(code.upper())
+    test = sandbox.active_room.get()
+    room = (rooms if test is None else test.rooms).get(code.upper())
     if room is None:
         raise HTTPException(404, 'Комната не найдена. Проверьте код.')
     return room
@@ -205,6 +228,9 @@ def authenticate(room, token):
         raise HTTPException(403, 'Подключение завершено. Войдите снова.')
     if player:
         player['seen'] = time.monotonic()
+    if sandbox.active_room.get() is not None:
+        for participant in room['players'].values():
+            participant['seen'] = time.monotonic()
     room['updated'] = time.monotonic()
     return host
 
@@ -224,6 +250,22 @@ def existing_client(client_id):
 async def health():
     return {'ok': True}
 
+
+def new_room(token, name, game_id, client_id=None, avatar=None):
+    room = {
+        'host': token, 'host_client': client_id, 'host_name': name, 'host_avatar': avatar,
+        'selected_game': game_id, 'ready': {}, 'reactions': [], 'scores': {},
+        'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12),
+        'players': {}, 'state': None, 'detective': None, 'quiz': None,
+        'writing': None, 'party': None, 'updated': time.monotonic(),
+    }
+    if game_id in ('boss', 'domination'):
+        tabletop.setup(room, game_id)
+    if game_id == 'codenames':
+        codenames.setup(room)
+    return room
+
+
 @app.post('/api/create')
 async def create(body: Create, request: Request):
     name = body.name.strip()
@@ -241,13 +283,10 @@ async def create(body: Create, request: Request):
             raise HTTPException(503, 'Сейчас нельзя создать комнату. Попробуйте позже.')
         while True:
             code = ''.join(secrets.choice(ALPHABET) for _ in range(4))
-            if code not in rooms:
+            if code != sandbox.TEST_CODE and code not in rooms:
                 break
         token = secrets.token_urlsafe(32)
-        rooms[code] = {'host': token, 'host_client': body.client_id, 'host_name': name, 'selected_game': body.game_id, 'ready': {}, 'reactions': [], 'scores': {}, 'video_room': secrets.token_hex(12), 'video_password': secrets.token_hex(12), 'players': {}, 'state': None, 'detective': None, 'quiz': None, 'writing': None, 'party': None, 'updated': time.monotonic()}
-        rooms[code]['host_avatar'] = profile['avatar'] if profile else None
-        if body.game_id in ('boss','domination'):tabletop.setup(rooms[code],body.game_id)
-        if body.game_id == 'codenames': codenames.setup(rooms[code])
+        rooms[code] = new_room(token, name, body.game_id, body.client_id, profile['avatar'] if profile else None)
         return {'code': code, 'token': token, 'host': True, 'name': name}
 
 @app.post('/api/join')
@@ -284,7 +323,12 @@ async def state(body: Credentials):
         state = room['state']
         if state is not None and not is_host:
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
-        return {'tabletop':tabletop.view(room,body.token), 'codenames': codenames.view(room, body.token), 'selected_game': room.get('selected_game'), 'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'host_avatar': room.get('host_avatar'), 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'avatar': p.get('avatar'), 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': room['selected_game'] if room.get('selected_game') in ('boss','domination') else 'codenames' if room.get('selected_game') == 'codenames' else 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
+        result = {'tabletop':tabletop.view(room,body.token), 'codenames': codenames.view(room, body.token), 'selected_game': room.get('selected_game'), 'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'host_avatar': room.get('host_avatar'), 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'avatar': p.get('avatar'), 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': room['selected_game'] if room.get('selected_game') in ('boss','domination') else 'codenames' if room.get('selected_game') == 'codenames' else 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
+        test = sandbox.active_room.get()
+        if test is not None:
+            result['sandbox_participants'] = test.participants()
+            result['video'] = None
+        return result
 
 
 class ManagePlayer(Credentials):
@@ -713,13 +757,97 @@ def detective_check():
 app.include_router(admin.build_router(GAME_MODES, detective_check))
 
 
+class SandboxCreate(BaseModel):
+    game: str = Field(max_length=20)
+    bots: int = Field(ge=1, le=12)
+
+
+class SandboxSeat(BaseModel):
+    seat: str | None = Field(default=None, max_length=12)
+
+
+def sandbox_session(session, seat=None):
+    participants = session.participants()
+    participant = next((player for player in participants if
+                        player['id'] == seat or (seat is None and player['host'])), None)
+    if participant is None:
+        raise HTTPException(404, 'Это место больше недоступно.')
+    room = session.room
+    room['updated'] = time.monotonic()
+    return {
+        'code': sandbox.TEST_CODE, 'token': session.seats[participant['id']],
+        'name': participant['name'], 'host': participant['host'], 'seat': participant['id'],
+        'participants': participants,
+    }
+
+
+def sandbox_detective_step(room, bots):
+    progress = room['detective']
+    if not bots or progress['result'] is not None:
+        return 0
+    evidence = next((item for item in detective_view(progress)['items']
+                     if not item['locked'] and item['id'] not in progress['opened']), None)
+    if evidence is None:
+        return 0
+    inspect_evidence(progress, evidence['id'])
+    bot = bots[(len(progress['opened']) - 1) % len(bots)]
+    progress['theories'][bot] = {
+        'name': room['players'][bot]['name'], 'suspect': 'Пока не знаю',
+        'reason': f"Изучил материал «{evidence['title']}». Стоит сверить его с хронологией.",
+    }
+    return 1
+
+
+@app.get('/api/admin/sandbox')
+async def list_sandboxes(request: Request, profile: admin.Admin):
+    async with lock:
+        return {'rooms': [session.summary() for session in sandbox.owned_by(request.state.account_id)]}
+
+
+@app.post('/api/admin/sandbox')
+async def create_sandbox(body: SandboxCreate, request: Request, profile: admin.Admin):
+    if body.game not in GAME_MODES:
+        raise HTTPException(404, 'Режим не найден.')
+    async with lock:
+        room = new_room(secrets.token_urlsafe(32), profile['nickname'], body.game, avatar=profile['avatar'])
+        return sandbox.create(request.state.account_id, body.game, body.bots, room).summary()
+
+
+@app.post('/api/admin/sandbox/{test_id}/seat')
+async def choose_sandbox_seat(test_id: str, body: SandboxSeat, request: Request, profile: admin.Admin):
+    async with lock:
+        return sandbox_session(sandbox.find(test_id, request.state.account_id), body.seat)
+
+
+@app.post('/api/admin/sandbox/{test_id}/step')
+async def step_sandbox(test_id: str, body: SandboxSeat, request: Request, profile: admin.Admin):
+    async with lock:
+        session = sandbox.find(test_id, request.state.account_id)
+        seat = sandbox_session(session, body.seat)['seat']
+        try:
+            count = sandbox.step(session, seat, sandbox_detective_step)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        return {'actions': count, 'participants': session.participants()}
+
+
+@app.delete('/api/admin/sandbox/{test_id}')
+async def close_sandbox(test_id: str, request: Request, profile: admin.Admin):
+    async with lock:
+        session = sandbox.find(test_id, request.state.account_id)
+        del sandbox.sessions[session.id]
+        session.rooms.clear()
+        return {'ok': True}
+
+
 @app.post('/api/leave')
 async def leave(body: Credentials):
     async with lock:
         prune()
         room = get_room(body.code)
         if authenticate(room, body.token):
-            del rooms[body.code.upper()]
+            test = sandbox.active_room.get()
+            del (rooms if test is None else test.rooms)[body.code.upper()]
         else:
             room['players'].pop(body.token, None)
             if room.get('codenames', {}).get('phase') == 'setup': room['codenames']['seats'].pop(body.token, None)
@@ -750,6 +878,8 @@ if static.is_dir():
     @app.get('/account/register')
     @app.get('/profile')
     @app.get('/admin')
+    @app.get('/test-room/{test_id}')
+    @app.get('/test-room/{test_id}/{test_path:path}')
     @app.get('/lobby/{code}')
     @app.get('/lobby/{code}/game/{game_id}')
     async def index(code: str = '', game_id: str = ''):

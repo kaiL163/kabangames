@@ -9,16 +9,17 @@ const TABS=[['Материалы','▦'],['Доска','⌁'],['Хронолог
 const GROUPS=['Все','Места','Улики','Люди']
 const HINTS=['Начните с мест происшествия и первичных показаний. Затем проверьте, какие новые материалы стали доступны.','Сопоставьте показания с независимыми источниками: камерой, журналом двери, экспертизой. Кто действительно мог попасть в зал?','Проследите путь плёнки и сравните признаки оригинала и копии. Одна подозрительная вещь ещё не доказывает вину.']
 
-export default function Detective({caseData,isHost,roomCode,onInspect,onAccuse,onTheory,onRestart,onClose,onBoard,error}) {
+export default function Detective({caseData,isHost,roomCode,testSeat,onInspect,onAccuse,onTheory,onRestart,onClose,onBoard,error}) {
  const [tab,setTab]=useState('Материалы'),[group,setGroup]=useState('Все'),[filter,setFilter]=useState('Все'),[query,setQuery]=useState('')
  const [selected,setSelected]=useState(null),[photo,setPhoto]=useState(false),[brief,setBrief]=useState(false)
  const [suspect,setSuspect]=useState('Пока не знаю'),[reason,setReason]=useState(''),[hint,setHint]=useState(0)
  const [answers,setAnswers]=useState({}),[confirmation,setConfirmation]=useState(false),[busy,setBusy]=useState(false),[status,setStatus]=useState('')
  const [eventSource,setEventSource]=useState('')
  const root=useRef(null),pending=useRef(false)
- const noteKey=`case-notes-${roomCode}-${caseData.instance}`
- const [notes,setNotes]=useState(()=>localStorage.getItem(noteKey)||'')
- useEffect(()=>{localStorage.setItem(noteKey,notes)},[notes,noteKey])
+ const noteKey=`case-notes-${roomCode}-${caseData.instance}${testSeat ? '-' + testSeat : ''}`
+ const noteStorage=testSeat ? sessionStorage : localStorage
+ const [notes,setNotes]=useState(()=>noteStorage.getItem(noteKey)||'')
+ useEffect(()=>{noteStorage.setItem(noteKey,notes)},[noteKey,noteStorage,notes])
  const opened=caseData.items.filter(item=>item.text)
  const item=caseData.items.find(entry=>entry.id===selected)
  const pinned=caseData.board?.cards||{}
