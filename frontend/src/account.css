@@ -10,6 +10,8 @@ header .account-nav{display:inline-flex;align-items:center;gap:7px;font-weight:8
 .account-identity .text-button{padding:0}
 .account-identity .text-button:disabled{opacity:.55;cursor:default}
 .account-manage{margin-top:20px;padding-top:16px;border-top:1px solid #cbcbbf}
+.account-manage h2{margin:0;font-size:20px}
+.account-manage strong{overflow-wrap:anywhere}
 .account-danger>.text-button{padding:0;color:#92251e}
 .account-panel .account-delete{background:#92251e;color:#fff}
 .account-avatar-picker{margin:20px 0 0;padding:10px 0 0;border:0;display:flex;flex-wrap:wrap;gap:8px}

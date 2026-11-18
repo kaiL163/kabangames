@@ -16,6 +16,19 @@ docker compose up --build -d
 
 Compose также запускает PostgreSQL и Redis во внутренней сети. PostgreSQL хранит аккаунты, профиль и сессии в томе `kaban-postgres`. Redis хранит кеш профилей до пяти минут и счётчики попыток входа. Гости могут играть по коду. Профиль даёт ник по умолчанию и выбор аватара для новых комнат.
 
+Для подтверждения почты выберите SMTP-сервис и подтвердите в нём адрес отправителя. На VPS добавьте SMTP-настройки в `/opt/sbor.env`. GitHub Actions читает этот файл при каждом деплое. Для локального Compose используйте `.env` или передавайте переменные окружения напрямую.
+
+```dotenv
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USERNAME=your-smtp-username
+SMTP_PASSWORD=your-smtp-password
+SMTP_FROM=no-reply@example.com
+```
+
+Если SMTP-сервис требует шифрование сразу при подключении, используйте его порт и `SMTP_SECURITY=ssl`. Ссылки используют `PUBLIC_SITE_URL`, по умолчанию `https://games.kaban4ik.xyz`. Без SMTP отправка отключена. Ссылка действует 30 минут, а новое письмо заменяет предыдущую ссылку.
+
 На сервере с HTTPS прокси должен передавать исходный заголовок `Host`. Перед первой инициализацией PostgreSQL можно задать `POSTGRES_PASSWORD` в окружении Docker Compose. Сохраните выбранный пароль для последующих запусков. Для запуска без Compose аккаунтам нужны переменные `DATABASE_HOST`, `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PASSWORD` и `REDIS_URL`.
 
 ## Быстрое размещение
