@@ -1,3 +1,4 @@
+import {PlayerName} from './RoomPeople.jsx'
 import React, {createContext, useContext, useEffect, useRef, useState} from 'react'
 import {createPortal} from 'react-dom'
 export const CameraContext = createContext(null)
@@ -34,7 +35,7 @@ export function CameraPlayers() {
  const [open,setOpen] = useState(()=>sessionStorage.getItem('kaban-cameras-open')==='true')
  if (!video) return null
  function toggle(){const next=!open;setOpen(next);sessionStorage.setItem('kaban-cameras-open',String(next))}
- return <section className="game-camera-section" aria-label="Камеры игроков"><button className="game-camera-toggle" onClick={toggle} aria-expanded={open} aria-controls="game-camera-list"><span>Камеры игроков · {players.length+1}</span><span>{open?'Свернуть ↑':'Показать ↓'}</span></button><AllCamerasButton/><div id="game-camera-list" className={`game-cameras ${open?'':'cameras-hidden'}`} inert={open?undefined:''}>{[{camera_id:hostCamera,name:hostName},...players].map(player=><div className="game-camera-item" key={player.camera_id}><CameraTile stream={player.camera_id} name={player.name}/><span>{player.name}</span></div>)}</div></section>
+ return <section className="game-camera-section" aria-label="Камеры игроков"><button className="game-camera-toggle" onClick={toggle} aria-expanded={open} aria-controls="game-camera-list"><span>Камеры игроков · {players.length+1}</span><span>{open?'Свернуть ↑':'Показать ↓'}</span></button><AllCamerasButton/><div id="game-camera-list" className="game-cameras" hidden={!open}>{open&&[{camera_id:hostCamera,name:hostName},...players].map(player=><div className="game-camera-item" key={player.camera_id}><CameraTile stream={player.camera_id} name={player.name}/><PlayerName name={player.name}/></div>)}</div></section>
 }
 export default function CameraStrip() {
  const {video,enabled,setEnabled,myCamera} = useContext(CameraContext)

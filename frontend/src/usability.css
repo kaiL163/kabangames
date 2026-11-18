@@ -1,0 +1,61 @@
+.game-bar,.game-bar-actions,.account-page-nav{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.game-bar-actions{justify-content:flex-end}
+.game-bar-actions .outline-button{font-size:12px;padding:9px 13px;min-height:38px}
+.game-account-link{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:6px 10px;border:1px solid #cfd6c5;border-radius:10px;background:#f7f8ee;color:#35482d;text-decoration:none;font-size:12px;font-weight:800;letter-spacing:0;white-space:nowrap}
+.game-account-link:hover{background:#ebf2dc;border-color:#9aac7f}
+.game-account-link .account-avatar,.player-identity .account-avatar{display:block;width:24px;height:24px}
+.account-profile-summary{display:flex;align-items:center;gap:14px;margin:0 0 24px;min-width:0}
+.account-profile-summary .account-avatar{width:56px;height:56px}
+.account-profile-summary>div{display:grid;gap:5px;min-width:0;overflow-wrap:anywhere}
+.account-profile-summary span{color:#596051;font-size:13px}
+.player-identity,.game-score-rank{display:inline-flex;align-items:center;gap:7px;min-width:0;vertical-align:middle}
+.player-identity-icon{display:grid;place-items:center;width:24px;height:24px;flex:none;border-radius:50%;background:#e4e9db;color:#34442b;font-size:11px;font-weight:800}
+.player-identity-name{overflow-wrap:anywhere;text-align:left}
+.quiz-results .player-identity-name{color:var(--ink);font-weight:700;text-align:left}
+.cameras-window-grid article>.player-identity{margin:10px 4px 4px}
+.tt-manage .player-identity,.cn-manage-row .player-identity{margin-right:auto}
+.tt-seat-hat{display:block;line-height:1.5}
+.game-cameras[hidden]{display:none}
+.dc-header{height:auto;min-height:76px;flex-wrap:wrap;gap:8px;padding-block:8px}
+.dc-header-actions,.cn-header-actions{flex-wrap:wrap}
+.cn-board-scroll{min-width:0;overflow-x:auto;padding-bottom:7px}
+.cn-board-scroll:focus-visible,.game-account-link:focus-visible,.reaction-toggle:focus-visible{outline:2px solid #647b37;outline-offset:2px}
+.cn-board-hint{display:none}
+.reaction-options{display:flex;gap:5px}
+.reaction-dock{z-index:54}
+.reaction-dock .reaction-toggle{display:none}
+.game-page{padding-bottom:93px}
+.tt-wrap{padding-bottom:100px}
+.detective-app{padding-bottom:80px}
+
+@media(max-width:700px){
+  .game-bar{justify-content:space-between}
+  .game-bar-actions{justify-content:flex-start;gap:6px}
+  .game-bar-actions .outline-button,.game-account-link{min-height:38px;padding-inline:8px;font-size:11px}
+  .dc-header{min-height:64px}
+  .reaction-dock{left:auto;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));padding:4px;transform:none}
+  .reaction-dock .reaction-toggle{display:block;width:auto;height:36px;padding:0 12px;color:#344234;font-size:12px;font-weight:800}
+  .reaction-options{display:none}
+  .reaction-options.is-expanded{display:flex;position:absolute;right:0;bottom:calc(100% + 8px);padding:5px;background:#f8f7f0;border:1px solid #d9ddd0;border-radius:14px;box-shadow:0 6px 18px #0002}
+  .reaction-options button{font-size:18px}
+  .camera-publisher.camera-tools{bottom:calc(10px + env(safe-area-inset-bottom));max-width:calc(100vw - 110px)}
+  .camera-publisher.camera-tools.preview-open,.camera-publisher.camera-tools.confirm-open{bottom:calc(60px + env(safe-area-inset-bottom));max-width:calc(100vw - 20px)}
+  .camera-tools .camera-publisher-bar{gap:7px}
+  .camera-tools .camera-publisher-bar .my-camera-icon{display:none}
+  .camera-tools .camera-publisher-bar strong{font-size:11px}
+}
+@media(max-width:500px){
+  .cn-app{scrollbar-gutter:auto}
+  .cn-board-hint{display:block;margin:0 0 7px;color:#536348;font-size:12px}
+  .cn-board.columns-6{min-width:456px}
+  .cn-board.columns-6 .cn-card strong{overflow-wrap:normal;hyphens:auto;font-size:10px}
+  .cn-board.columns-6 .cn-card{min-height:69px}
+}
+@media(max-width:480px){
+  .site-header{gap:8px}
+  .site-header nav{gap:8px}
+  .site-header nav .pill{white-space:nowrap}
+  .site-header .kaban-logo{gap:5px}
+  .site-header .kaban-logo img{width:34px;height:34px}
+  .site-header .kaban-logo .brand-name{font-size:14px}
+}

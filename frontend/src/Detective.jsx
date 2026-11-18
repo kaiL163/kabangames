@@ -1,3 +1,4 @@
+import {AccountLink} from './Account.jsx'
 import React, {useEffect,useRef,useState} from 'react'
 import InvestigationBoard from './InvestigationBoard.jsx'
 import {CameraPlayers} from './CameraStrip.jsx'
@@ -31,7 +32,7 @@ export default function Detective({caseData,isHost,roomCode,onInspect,onAccuse,o
  async function board(body){return run(()=>onBoard({instance:caseData.instance,...body}),'Изменения сохранены для команды')}
  function addEvent(entry){setSelected(null);setEventSource(entry.id);navigate('Хронология')}
  return <main className="detective-app" ref={root}>
- <header className="dc-header"><div className="dc-brand"><span className="dc-brand-mark">✳</span><div>KABAN <b>ДЕТЕКТИВ</b></div></div><div className="dc-header-actions"><span className="dc-room">КОМНАТА <b>{roomCode}</b></span><button className="dc-secondary" onClick={()=>setBrief(true)}>О деле</button><button className="dc-icon-button" onClick={()=>{if(isHost&&!closed){if(!window.confirm('Завершить расследование и вернуться в комнату? Материалы текущего дела будут закрыты.'))return}onClose()}} aria-label="Вернуться в комнату">↗</button></div></header>
+ <header className="dc-header"><div className="dc-brand"><span className="dc-brand-mark">✳</span><div>KABAN <b>ДЕТЕКТИВ</b></div></div><div className="dc-header-actions"><AccountLink game/><span className="dc-room">КОМНАТА <b>{roomCode}</b></span><button className="dc-secondary" onClick={()=>setBrief(true)}>О деле</button><button className="dc-icon-button" onClick={()=>{if(isHost&&!closed){if(!window.confirm('Завершить расследование и вернуться в комнату? Материалы текущего дела будут закрыты.'))return}onClose()}} aria-label="Вернуться в комнату">↗</button></div></header>
  <div className="dc-container"><div className="dc-intro"><div><span className="dc-kicker">ДЕЛО № 01 · {closed?'ЗАКРЫТО':'РАССЛЕДУЕТСЯ'}</span><h1>{caseData.title}</h1><p>Найдите виновного. Восстановите события. Докажите свою версию.</p></div><button className="dc-progress-card" onClick={()=>{setFilter('Доступно');navigate('Материалы')}}><span>{opened.length}<small> / {caseData.items.length}</small></span><div><b>Материалов изучено</b><div className="dc-progress-track"><i style={{width:`${opened.length/caseData.items.length*100}%`}}/></div></div></button></div>
  <CameraPlayers/>
  <nav className="dc-nav" aria-label="Разделы расследования">{TABS.map(([name,icon])=><button key={name} className={tab===name?'active':''} aria-current={tab===name?'page':undefined} onClick={()=>navigate(name)}><span>{icon}</span>{name}{name==='Доска'&&Object.keys(pinned).length>0&&<small>{Object.keys(pinned).length}</small>}</button>)}</nav>

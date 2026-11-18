@@ -70,15 +70,16 @@ export function Avatar({id, fallback = '☺'}) {
   return avatar ? <img className="account-avatar" src={`/images/${avatar[1]}`} alt="" width="36" height="36"/> : <span aria-hidden="true">{fallback}</span>
 }
 
-export function AccountLink() {
+export function AccountLink({game = false}) {
   const {profile, loading} = useAccount()
   if (loading) return null
+  const className = game ? 'account-nav game-account-link' : 'account-nav'
   return profile
-    ? <Link className="account-nav" to="/profile"><Avatar id={profile.avatar}/>Профиль</Link>
-    : <Link className="account-nav" to="/account/login">Аккаунт</Link>
+    ? <Link className={className} to="/profile" title={profile.nickname}><Avatar id={profile.avatar}/>Профиль</Link>
+    : <Link className={className} to="/account/login">Аккаунт</Link>
 }
 
-export function AccountPage({mode}) {
+export function AccountPage({mode, returnTo}) {
   const {profile, loading, loadError} = useAccount()
   if (loading) return <main className="page-shell"><p>Загружаем аккаунт…</p></main>
   if (mode === 'profile' && !profile) {
@@ -86,10 +87,10 @@ export function AccountPage({mode}) {
       : <Navigate to="/account/login" replace/>
   }
   if (mode !== 'profile' && profile) return <Navigate to="/profile" replace/>
-  return <AccountForm key={mode} mode={mode}/>
+  return <AccountForm key={mode} mode={mode} returnTo={returnTo}/>
 }
 
-function AccountForm({mode}) {
+function AccountForm({mode, returnTo}) {
   const {profile, setProfile, providers} = useAccount()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -170,10 +171,16 @@ function AccountForm({mode}) {
   }
 
   return <main className="page-shell">
-    <Link className="back-link" to="/"><span className="link-icon" aria-hidden="true">←</span> На главную</Link>
+    <div className="account-page-nav">
+      <Link className="back-link" to="/"><span className="link-icon" aria-hidden="true">←</span> На главную</Link>
+      {returnTo && <Link className="back-link" to={returnTo}>{returnTo.includes('/game/') ? 'Вернуться в игру' : 'Вернуться в лобби'} <span className="link-icon" aria-hidden="true">↗</span></Link>}
+    </div>
     <section className="join-panel account-panel">
       <h1>{editing ? 'Профиль' : registering ? 'Регистрация' : 'Вход'}</h1>
-      {editing && <p>Логин: <strong>{profile.username}</strong></p>}
+      {editing && <div className="account-profile-summary">
+        <Avatar id={profile.avatar}/>
+        <div><strong>{profile.nickname}</strong><span>Логин: {profile.username}</span></div>
+      </div>}
       <form onSubmit={submit}>
         {!editing && <><label htmlFor="account-username">Логин</label>
           <input id="account-username" name="username" autoComplete="username" minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" title="Латинские буквы, цифры и подчёркивание" required/>

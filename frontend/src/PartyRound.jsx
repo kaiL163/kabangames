@@ -1,8 +1,9 @@
+import {PlayerName, RoundHeader} from './RoomPeople.jsx'
 import {CameraPlayers} from './CameraStrip.jsx'
-import CameraStrip from './CameraStrip.jsx'
+
 import React, {useEffect,useState} from 'react'
 
-export default function PartyRound({game,room,onAction,onNext,onBack,busy,error}) {
+export default function PartyRound({game,room,onAction,onNext,onBack, onRules,busy,error}) {
  const [text,setText]=useState(''), [facts,setFacts]=useState(['','','']), [lie,setLie]=useState(null), [seconds,setSeconds]=useState(0),[guessSent,setGuessSent]=useState(false)
  useEffect(()=>{setText('');setFacts(['','','']);setLie(null);setGuessSent(false)},[game?.instance,game?.round])
  useEffect(()=>{setSeconds(game?.remaining??0)},[game?.remaining,game?.round,game?.phase])
@@ -12,7 +13,7 @@ export default function PartyRound({game,room,onAction,onNext,onBack,busy,error}
  const active=game.eligible, isActor=game.is_actor, mode=game.game_id, phase=game.phase
  const voting=phase==='vote', result=['result','finished'].includes(phase)
  const title=mode==='screenwriter'?`ЧАСТЬ ${game.round} / ${game.total}`:`РАУНД ${game.round} / ${game.total}`
- return <main className="game-page quiz-page"><div className="game-bar"><span>KABAN GAMES / ЛОББИ {room.code}</span><button className="outline-button" onClick={onBack}>{room.host?'Завершить игру':'В лобби'}</button></div><CameraStrip/><CameraPlayers/><div className="game-panel"><div className="quiz-top"><span className="eyebrow">{game.title.toUpperCase()} · {title}</span>{game.remaining!=null&&['guess','write','vote'].includes(phase)&&<span className="quiz-clock">{seconds} сек</span>}</div>
+ return <main className="game-page quiz-page"><RoundHeader room={room} onBack={onBack} onRules={onRules}/><CameraPlayers/><div className="game-panel"><div className="quiz-top"><span className="eyebrow">{game.title.toUpperCase()} · {title}</span>{game.remaining!=null&&['guess','write','vote'].includes(phase)&&<span className="quiz-clock">{seconds} сек</span>}</div>
  {phase==='finished'?<h1>{mode==='screenwriter'?'ИСТОРИЯ ГОТОВА!':'ИГРА ОКОНЧЕНА!'}</h1>:<>
  {mode==='croc'&&<><h1>{phase==='guess'?(isActor?'ПОКАЖИ СЛОВО':'УГАДАЙ СЛОВО'):'РАУНД ЗАВЕРШЁН'}</h1><p className="desc">Показывает: {game.actor}. Объяснять нужно жестами, без слов. Время — 60 секунд.</p>{isActor&&phase==='guess'&&<div className="prompt">{game.word}</div>}{phase==='guess'&&!isActor&&active&&<form className="writing-form" onSubmit={async e=>{e.preventDefault();const ok=await act('guess',{value:text});if(ok){setText('');setGuessSent(true)}}}><label htmlFor="guess">Ваш вариант</label><input id="guess" maxLength={200} value={text} onChange={e=>setText(e.target.value)} required placeholder="Напишите слово"/><button className="button" disabled={busy||seconds===0}>Угадать ↗</button>{guessSent&&<p className="game-hint">Если слово верное, раунд завершится. Можно пробовать снова.</p>}</form>}{phase==='result'&&<div className="quiz-correct">Слово: <strong>{game.word}</strong><br/>{game.guesser?`Угадал: ${game.guesser}. По 100 очков угадавшему и показывающему.`:'Время закончилось, слово никто не угадал.'}</div>}</>}
  {mode==='truth'&&<><h1>ХОДИТ {game.actor?.toUpperCase()}</h1><p className="desc">Каждый ходит по очереди. Любое задание можно пропустить.</p>{phase==='choose'&&(isActor?<div className="actions"><button className="primary" disabled={busy} onClick={()=>act('choose',{value:'truth'})}>Правда</button><button className="secondary" disabled={busy} onClick={()=>act('choose',{value:'dare'})}>Действие</button></div>:<p className="quiz-correct">Ждём выбор игрока {game.actor}.</p>)}{phase==='challenge'&&<><div className="prompt">{game.prompt}</div>{isActor&&<button className="button" disabled={busy} onClick={()=>act('done')}>Выполнено ↗</button>}</>}{phase==='result'&&<p className="quiz-correct">Ход завершён. {game.prompt}</p>}{['choose','challenge'].includes(phase)&&(isActor||room.host)&&<button className="text-button skip-turn" disabled={busy} onClick={()=>act('skip')}>Пропустить ход</button>}</>}
@@ -23,6 +24,6 @@ export default function PartyRound({game,room,onAction,onNext,onBack,busy,error}
  {!active&&!result&&!voting&&<p className="game-hint">Вы присоединитесь со следующего раунда.</p>}
  </>}
  {mode==='screenwriter'&&game.story?.length>0&&<div className="quiz-leaderboard"><div className="eyebrow">ВАША ИСТОРИЯ</div>{game.story.map((item,i)=><div key={i}><span>{item.prompt}</span><strong>{item.answer}</strong></div>)}</div>}
- {result&&!['truth','screenwriter'].includes(mode)&&<div className="quiz-leaderboard"><div className="eyebrow">ТАБЛИЦА ОЧКОВ</div>{game.scores.map((entry,index)=><div key={index}><span>{index+1}. {entry.name}</span><strong>{entry.score}</strong></div>)}</div>}
+ {result&&!['truth','screenwriter'].includes(mode)&&<div className="quiz-leaderboard"><div className="eyebrow">ТАБЛИЦА ОЧКОВ</div>{game.scores.map((entry,index)=><div key={index}><span className="game-score-rank"><span>{index+1}.</span><PlayerName name={entry.name}/></span><strong>{entry.score}</strong></div>)}</div>}
  {room.host&&phase==='result'&&<button className="button" disabled={busy} onClick={onNext}>{game.round===game.total?'Итоги игры ↗':'Следующий раунд ↗'}</button>}{phase==='finished'&&<p className="game-hint">Ведущий может завершить игру и выбрать другую в лобби.</p>}{error&&<p className="room-error" role="alert">{error}</p>}</div></main>
 }
