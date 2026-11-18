@@ -16,9 +16,9 @@ const avatars = {
 const AccountContext = createContext(null)
 const ACCOUNT_PREVIEW_KEY = 'kaban-account-avatar'
 const PROVIDERS = [
-  {id: 'vk', name: 'ВК', icon: 'VK'},
-  {id: 'yandex', name: 'Яндекс ID', icon: 'Я'},
-  {id: 'telegram', name: 'Telegram', icon: '➤'},
+  {id: 'vk', name: 'ВК', logo: 'login-vk.svg'},
+  {id: 'yandex', name: 'Яндекс ID', logo: 'login-yandex.png'},
+  {id: 'telegram', name: 'Telegram', logo: 'login-telegram.svg'},
 ]
 const OAUTH_ERRORS = {
   expired: 'Срок входа истёк. Попробуйте ещё раз.',
@@ -210,6 +210,7 @@ function AccountForm({mode, returnTo}) {
     <AccountNavigation returnTo={returnTo}/>
     <section className="join-panel account-panel">
       <h1>{editing ? 'Профиль' : registering ? 'Регистрация' : 'Вход'}</h1>
+      {editing && profile.admin_role && <Link className="back-link account-admin-link" to="/admin">Админ-панель <span className="link-icon" aria-hidden="true">↗</span></Link>}
       {editing && <div className="account-profile-summary">
         <Avatar id={profile.avatar}/>
         <div><strong>{profile.nickname}</strong><span>Логин: {profile.username}</span></div>
@@ -252,10 +253,10 @@ function AccountForm({mode, returnTo}) {
         </React.Fragment>
       })}
       {signInProviders.length > 0 && <div className="account-social" role="group" aria-label="Вход через соцсети">
-        <span className="account-social-label">Или войти через</span>
+        <span className="account-social-label">Войти с помощью</span>
         <div className="account-social-list">
-          {signInProviders.map(({id, name, icon}) => <a key={id} href={`/api/account/oauth/${id}/start`} aria-label={`Войти через ${name}`}>
-            <span className={`account-social-icon account-social-icon-${id}`} aria-hidden="true">{icon}</span>
+          {signInProviders.map(({id, name, logo}) => <a key={id} href={`/api/account/oauth/${id}/start`} aria-label={`Войти через ${name}`}>
+            <img className="account-social-icon" src={`/images/${logo}`} alt="" width="25" height="25"/>
             {name}
           </a>)}
         </div>

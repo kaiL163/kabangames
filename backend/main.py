@@ -17,7 +17,7 @@ try:
     from .detective import CASE, ANSWERS, EXPLANATION
     from . import quiz as quiz_game
     from . import writing_game
-    from . import party, codenames, tabletop, accounts
+    from . import party, codenames, tabletop, accounts, admin
 except ImportError:
     from detective import CASE, ANSWERS, EXPLANATION
     import quiz as quiz_game
@@ -26,6 +26,7 @@ except ImportError:
     import codenames
     import tabletop
     import accounts
+    import admin
 
 rooms = {}
 lock = asyncio.Lock()
@@ -66,7 +67,7 @@ app.include_router(accounts.router)
 @app.middleware('http')
 async def persist_rooms(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith('/api/account/'):
+    if request.url.path.startswith(('/api/account/', '/api/admin/')):
         response.headers['Cache-Control'] = 'private, no-store'
         return response
     if request.method == 'POST' and request.url.path.startswith('/api/') and request.url.path != '/api/state':
@@ -545,6 +546,10 @@ def detective_view(progress):
         'theories': list(progress.get('theories', {}).values()),
     }
 
+def new_investigation():
+    return {'instance': secrets.token_hex(12), 'board': {'cards': {}, 'links': [], 'timeline': []}, 'opened': [], 'result': None, 'theories': {}}
+
+
 @app.post('/api/detective/start')
 async def detective_start(body: Credentials):
     async with lock:
@@ -554,12 +559,25 @@ async def detective_start(body: Credentials):
             raise HTTPException(403, 'Только ведущий начинает дело')
         require_game(room, 'detective')
         require_ready(room)
-        room['detective'] = {'instance': secrets.token_hex(12), 'board': {'cards': {}, 'links': [], 'timeline': []}, 'opened': [], 'result': None, 'theories': {}}
+        room['detective'] = new_investigation()
         room['state'] = None
         room['quiz'] = None
         room['writing'] = None
         room['party'] = None
         return detective_view(room['detective'])
+
+def inspect_evidence(progress, item_id):
+    if progress is None:
+        raise HTTPException(400, 'Дело ещё не начато')
+    if not any(item['id'] == item_id for item in CASE['items']):
+        raise HTTPException(404, 'Улика не найдена')
+    item = next(i for i in CASE['items'] if i['id'] == item_id)
+    if not set(item.get('requires', [])).issubset(progress['opened']):
+        raise HTTPException(400, 'Сначала изучите связанные материалы')
+    if item_id not in progress['opened']:
+        progress['opened'].append(item_id)
+    return detective_view(progress)
+
 
 @app.post('/api/detective/inspect')
 async def detective_inspect(body: Inspect):
@@ -568,16 +586,7 @@ async def detective_inspect(body: Inspect):
         room = get_room(body.code)
         authenticate(room, body.token)
         progress = room['detective']
-        if progress is None:
-            raise HTTPException(400, 'Дело ещё не начато')
-        if not any(item['id'] == body.item_id for item in CASE['items']):
-            raise HTTPException(404, 'Улика не найдена')
-        item = next(i for i in CASE['items'] if i['id'] == body.item_id)
-        if not set(item.get('requires', [])).issubset(progress['opened']):
-            raise HTTPException(400, 'Сначала изучите связанные материалы')
-        if body.item_id not in progress['opened']:
-            progress['opened'].append(body.item_id)
-        return detective_view(progress)
+        return inspect_evidence(progress, body.item_id)
 
 class BoardAction(Credentials):
     instance: str = Field(max_length=40)
@@ -657,6 +666,20 @@ async def detective_theory(body: Theory):
         progress['theories'][body.token] = {'name': name, 'suspect': body.suspect, 'reason': reason}
         return detective_view(progress)
 
+def submit_accusation(progress, answers):
+    if progress is None:
+        raise HTTPException(400, 'Дело ещё не начато')
+    if progress['result'] is not None:
+        raise HTTPException(400, 'Обвинение уже отправлено')
+    if any(answers.get(q['id']) not in q['options'] for q in CASE['questions']):
+        raise HTTPException(400, 'Ответьте на все вопросы')
+    progress['result'] = {
+        'score': sum(answers[key] == value for key, value in ANSWERS.items()),
+        'answers': ANSWERS, 'submitted': answers, 'explanation': EXPLANATION,
+    }
+    return detective_view(progress)
+
+
 @app.post('/api/detective/accuse')
 async def detective_accuse(body: Accusation):
     async with lock:
@@ -665,17 +688,30 @@ async def detective_accuse(body: Accusation):
         if not authenticate(room, body.token):
             raise HTTPException(403, 'Обвинение отправляет ведущий')
         progress = room['detective']
-        if progress is None:
-            raise HTTPException(400, 'Дело ещё не начато')
-        if progress['result'] is not None:
-            raise HTTPException(400, 'Обвинение уже отправлено')
-        if any(body.answers.get(q['id']) not in q['options'] for q in CASE['questions']):
-            raise HTTPException(400, 'Ответьте на все вопросы')
-        progress['result'] = {
-            'score': sum(body.answers[key] == value for key, value in ANSWERS.items()),
-            'answers': ANSWERS, 'submitted': body.answers, 'explanation': EXPLANATION,
-        }
-        return detective_view(progress)
+        return submit_accusation(progress, body.answers)
+
+def detective_check():
+    progress = new_investigation()
+    initial = detective_view(progress)
+    if any(item['text'] or item['image'] for item in initial['items']) or initial['result']:
+        raise ValueError('Материалы дела раскрыты до осмотра.')
+    pending = {item['id'] for item in initial['items']}
+    while pending:
+        accessible = [item['id'] for item in detective_view(progress)['items']
+                      if item['id'] in pending and not item['locked']]
+        if not accessible:
+            raise ValueError('Часть улик невозможно открыть.')
+        for item_id in accessible:
+            inspect_evidence(progress, item_id)
+            pending.remove(item_id)
+    verdict = submit_accusation(progress, ANSWERS)['result']
+    if verdict['score'] != len(initial['questions']):
+        raise ValueError('Вердикт неправильно оценил ответы.')
+    return f'Осмотрено улик: {len(progress["opened"])} · правильное обвинение принято'
+
+
+app.include_router(admin.build_router(GAME_MODES, detective_check))
+
 
 @app.post('/api/leave')
 async def leave(body: Credentials):
@@ -713,6 +749,7 @@ if static.is_dir():
     @app.get('/account/login')
     @app.get('/account/register')
     @app.get('/profile')
+    @app.get('/admin')
     @app.get('/lobby/{code}')
     @app.get('/lobby/{code}/game/{game_id}')
     async def index(code: str = '', game_id: str = ''):

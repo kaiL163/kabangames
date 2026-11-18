@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS account_sessions (
 );
 CREATE INDEX IF NOT EXISTS account_sessions_expiry ON account_sessions(expires_at);
 ALTER TABLE accounts ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS admin_role text
+    CHECK (admin_role IN ('owner', 'tester'));
 CREATE TABLE IF NOT EXISTS account_identities (
     provider text NOT NULL,
     subject text NOT NULL,
@@ -160,7 +162,7 @@ async def start_session(connection, response, request, account_id, *, require_ht
 
 
 def profile_data(row):
-    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked', 'yandex_linked', 'telegram_linked', 'has_password')}
+    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked', 'yandex_linked', 'telegram_linked', 'has_password', 'admin_role')}
 
 
 async def current_profile(request):
@@ -171,7 +173,7 @@ async def current_profile(request):
     from redis.exceptions import RedisError
 
     session = await db.fetchrow('''
-        SELECT a.id, a.version FROM account_sessions s JOIN accounts a ON a.id = s.account_id
+        SELECT a.id, a.version, a.admin_role FROM account_sessions s JOIN accounts a ON a.id = s.account_id
         WHERE s.digest = $1 AND s.expires_at > now()
     ''', digest)
     if session is None:
@@ -183,9 +185,9 @@ async def current_profile(request):
         if value:
             cached_profile = json.loads(value)
             if 'telegram_linked' in cached_profile and 'has_password' in cached_profile:
-                return cached_profile
+                return {**cached_profile, 'admin_role': session['admin_role']}
     row = await db.fetchrow('''
-        SELECT username, nickname, avatar, version, password_hash IS NOT NULL AS has_password,
+        SELECT username, nickname, avatar, version, admin_role, password_hash IS NOT NULL AS has_password,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'telegram') AS telegram_linked
@@ -210,7 +212,7 @@ async def register(body: Registration, request: Request, response: Response):
         row = await connection.fetchrow('''
             INSERT INTO accounts (username, password_hash, nickname, avatar) VALUES ($1, $2, $3, $4)
             ON CONFLICT (username) DO NOTHING
-            RETURNING id, username, nickname, avatar, false AS vk_linked, false AS yandex_linked, false AS telegram_linked, true AS has_password
+            RETURNING id, username, nickname, avatar, admin_role, false AS vk_linked, false AS yandex_linked, false AS telegram_linked, true AS has_password
         ''', body.username.lower(), f'{salt.hex()}:{digest}', body.nickname, body.avatar)
         if row is None:
             raise HTTPException(409, 'Этот логин уже занят.')
@@ -226,7 +228,7 @@ async def login(body: Login, request: Request, response: Response):
     await limit_attempts(request, 'login-ip', request.client.host if request.client else 'unknown', 60)
     await limit_attempts(request, 'login-user', username, 10)
     row = await db.fetchrow('''
-        SELECT id, username, password_hash, nickname, avatar, password_hash IS NOT NULL AS has_password,
+        SELECT id, username, password_hash, nickname, avatar, admin_role, password_hash IS NOT NULL AS has_password,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'telegram') AS telegram_linked
@@ -255,7 +257,7 @@ async def update_profile(body: Profile, request: Request):
     row = await database(request).fetchrow('''
         UPDATE accounts a SET nickname = $1, avatar = $2, version = version + 1
         FROM account_sessions s WHERE a.id = s.account_id AND s.digest = $3 AND s.expires_at > now()
-        RETURNING a.username, a.nickname, a.avatar, a.password_hash IS NOT NULL AS has_password,
+        RETURNING a.username, a.nickname, a.avatar, a.admin_role, a.password_hash IS NOT NULL AS has_password,
                   EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'telegram') AS telegram_linked

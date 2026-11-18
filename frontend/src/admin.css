@@ -1,0 +1,29 @@
+.admin-page{max-width:1140px}
+.admin-page .admin-heading{height:auto;margin:24px 0;padding:0 0 20px;align-items:flex-end;flex-wrap:wrap;gap:14px}
+.admin-heading h1{font-size:clamp(30px,7vw,56px);line-height:1.06;letter-spacing:-.055em;margin:0 0 8px}
+.admin-page p{line-height:1.5;overflow-wrap:anywhere}
+.admin-heading p,.admin-panel p{margin:0;color:#595d50}
+.admin-page .room-error{color:#9d2822}
+.admin-panel{padding:24px;margin-bottom:20px;background:#fbfaf3;border:1px solid #dedfd0;border-radius:18px}
+.admin-panel h2{font-size:23px;margin:0 0 6px;letter-spacing:-.025em}
+.admin-section-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.admin-panel .admin-summary{padding:8px 12px;background:#edf1dd;border-radius:9px;color:#384a29;font-size:13px;font-weight:700}
+.admin-checks,.admin-access-list{list-style:none;padding:0;margin:16px 0 0}
+.admin-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.admin-checks li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;padding:14px;background:#f0f0e7;border:1px solid #e3e3d7;border-radius:12px}
+.admin-checks h3{margin:0 0 7px;font-size:16px;overflow-wrap:anywhere}
+.admin-checks p{grid-row:2;grid-column:1/-1;font-size:13px}
+.admin-checks .outline-button,.admin-access-list .outline-button{margin:0;padding:8px 11px;min-height:44px;font-size:12px}
+.admin-status{display:inline-block;border-radius:6px;padding:4px 7px;background:#e5e4da;color:#55574b;font-size:11px;font-weight:750}
+.admin-status[data-state=ok]{background:#deebc8;color:#314823}
+.admin-status[data-state=fail]{background:#f8ddd6;color:#82281d}
+.admin-status[data-state=busy]{background:#dfe8ef;color:#314e65}
+.admin-access-form{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px;margin:16px 0}
+.admin-access-form label{display:grid;gap:6px;flex:1 1 220px;max-width:390px;font-size:13px;font-weight:750}
+.admin-access-form input{min-width:0;width:100%;min-height:44px;padding:10px 12px;border:1px solid #cbcebf;border-radius:9px;background:#fff;font:inherit;font-size:16px}
+.admin-access-list li{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0;border-top:1px solid #dedfd0;overflow-wrap:anywhere}
+.admin-access-list small{color:#56594e}
+@media(max-width:680px){
+  .admin-panel{padding:14px}
+  .admin-checks{grid-template-columns:minmax(0,1fr)}
+}
