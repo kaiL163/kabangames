@@ -15,6 +15,9 @@ services:
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
       YANDEX_REDIRECT_URL: ${YANDEX_REDIRECT_URL:-https://games.kaban4ik.xyz/api/account/oauth/yandex/callback}
+      TELEGRAM_CLIENT_ID: ${TELEGRAM_CLIENT_ID:-}
+      TELEGRAM_CLIENT_SECRET: ${TELEGRAM_CLIENT_SECRET:-}
+      TELEGRAM_REDIRECT_URL: ${TELEGRAM_REDIRECT_URL:-https://games.kaban4ik.xyz/api/account/oauth/telegram/callback}
     depends_on:
       postgres:
         condition: service_healthy

@@ -16,10 +16,11 @@ from pydantic import BaseModel, Field, field_validator
 
 router = APIRouter(prefix='/api/account')
 COOKIE = 'kaban_session'
-Provider = Literal['vk', 'yandex']
+Provider = Literal['vk', 'yandex', 'telegram']
 OAUTH_PREFIX = '/api/account/oauth'
 VK_ORIGIN = 'https://id.vk.ru'
 YANDEX_ORIGIN = 'https://oauth.yandex.ru'
+TELEGRAM_ORIGIN = 'https://oauth.telegram.org'
 SESSION_SECONDS = 30 * 86400
 password_slots = asyncio.Semaphore(3)
 Avatar = Literal['brand', 'detective', 'domination', 'hat', 'bunker', 'monopoly', 'boss', 'codenames']
@@ -159,7 +160,7 @@ async def start_session(connection, response, request, account_id, *, require_ht
 
 
 def profile_data(row):
-    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked', 'yandex_linked', 'has_password')}
+    return {key: row[key] for key in ('username', 'nickname', 'avatar', 'vk_linked', 'yandex_linked', 'telegram_linked', 'has_password')}
 
 
 async def current_profile(request):
@@ -181,12 +182,13 @@ async def current_profile(request):
         value = await cache.get(key)
         if value:
             cached_profile = json.loads(value)
-            if 'has_password' in cached_profile:
+            if 'telegram_linked' in cached_profile and 'has_password' in cached_profile:
                 return cached_profile
     row = await db.fetchrow('''
         SELECT username, nickname, avatar, version, password_hash IS NOT NULL AS has_password,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
-               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked,
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'telegram') AS telegram_linked
         FROM accounts a WHERE id = $1
     ''', session['id'])
     if row is None:
@@ -208,7 +210,7 @@ async def register(body: Registration, request: Request, response: Response):
         row = await connection.fetchrow('''
             INSERT INTO accounts (username, password_hash, nickname, avatar) VALUES ($1, $2, $3, $4)
             ON CONFLICT (username) DO NOTHING
-            RETURNING id, username, nickname, avatar, false AS vk_linked, false AS yandex_linked, true AS has_password
+            RETURNING id, username, nickname, avatar, false AS vk_linked, false AS yandex_linked, false AS telegram_linked, true AS has_password
         ''', body.username.lower(), f'{salt.hex()}:{digest}', body.nickname, body.avatar)
         if row is None:
             raise HTTPException(409, 'Этот логин уже занят.')
@@ -226,7 +228,8 @@ async def login(body: Login, request: Request, response: Response):
     row = await db.fetchrow('''
         SELECT id, username, password_hash, nickname, avatar, password_hash IS NOT NULL AS has_password,
                EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
-               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked,
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'telegram') AS telegram_linked
         FROM accounts a WHERE username = $1
     ''', username)
     stored_hash = row['password_hash'] if row else None
@@ -254,7 +257,8 @@ async def update_profile(body: Profile, request: Request):
         FROM account_sessions s WHERE a.id = s.account_id AND s.digest = $3 AND s.expires_at > now()
         RETURNING a.username, a.nickname, a.avatar, a.password_hash IS NOT NULL AS has_password,
                   EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'vk') AS vk_linked,
-               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'yandex') AS yandex_linked,
+               EXISTS (SELECT FROM account_identities i WHERE i.account_id = a.id AND i.provider = 'telegram') AS telegram_linked
     ''', body.nickname, body.avatar, session_digest(request))
     if row is None:
         raise HTTPException(401, 'Войдите в аккаунт.')
@@ -352,13 +356,20 @@ def oauth_settings(request, provider):
         origin = VK_ORIGIN
         if not (app_id.isascii() and app_id.isdigit()):
             return None
-    else:
+    elif provider == 'yandex':
         app_id = os.getenv('YANDEX_CLIENT_ID', '')
         secret = os.getenv('YANDEX_CLIENT_SECRET', '')
         callback = os.getenv('YANDEX_REDIRECT_URL', '')
         origin = YANDEX_ORIGIN
-        if not app_id or not secret:
+    else:
+        app_id = os.getenv('TELEGRAM_CLIENT_ID', '')
+        secret = os.getenv('TELEGRAM_CLIENT_SECRET', '')
+        callback = os.getenv('TELEGRAM_REDIRECT_URL', '')
+        origin = TELEGRAM_ORIGIN
+        if not (app_id.isascii() and app_id.isdigit()):
             return None
+    if provider != 'vk' and (not app_id or not secret):
+        return None
     url = urlsplit(callback)
     if (url.scheme == 'https' and url.netloc == request.headers.get('host')
             and url.path == f'{OAUTH_PREFIX}/{provider}/callback'
@@ -369,7 +380,7 @@ def oauth_settings(request, provider):
 
 @router.get('/providers')
 async def providers(request: Request):
-    return {provider: oauth_settings(request, provider) is not None for provider in ('vk', 'yandex')}
+    return {provider: oauth_settings(request, provider) is not None for provider in ('vk', 'yandex', 'telegram')}
 
 
 async def begin_oauth(request, provider, *, link=False):
@@ -397,8 +408,9 @@ async def begin_oauth(request, provider, *, link=False):
     params = urlencode({'client_id': app_id, 'redirect_uri': callback, 'response_type': 'code',
                         'state': state, 'code_challenge': challenge,
                         'code_challenge_method': 's256' if provider == 'vk' else 'S256',
-                        'scope': '' if provider == 'vk' else 'login:info'})
-    response = RedirectResponse(f'{origin}/authorize?{params}', status_code=303)
+                        'scope': {'vk': '', 'yandex': 'login:info', 'telegram': 'openid profile'}[provider]})
+    authorization_path = '/auth' if provider == 'telegram' else '/authorize'
+    response = RedirectResponse(f'{origin}{authorization_path}?{params}', status_code=303)
     response.set_cookie(f'kaban_{provider}_flow', state, max_age=600, httponly=True, secure=True,
                         samesite='lax', path=f'{OAUTH_PREFIX}/{provider}/callback')
     return response
@@ -469,6 +481,46 @@ async def yandex_user(app_id, secret, code, verifier):
     return subject, (name.strip()[:20] or 'Игрок') if isinstance(name, str) else 'Игрок'
 
 
+async def telegram_user(app_id, secret, callback, code, verifier):
+    import httpx
+    import jwt
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            exchange = await client.post(f'{TELEGRAM_ORIGIN}/token', auth=(app_id, secret), data={
+                'grant_type': 'authorization_code', 'code': code, 'code_verifier': verifier,
+                'redirect_uri': callback, 'client_id': app_id,
+            })
+            exchange.raise_for_status()
+            token = exchange.json()['id_token']
+            if not isinstance(token, str) or not 0 < len(token) <= 8192:
+                raise OAuthLoginError
+            header = jwt.get_unverified_header(token)
+            if header.get('alg') != 'RS256' or not isinstance(header.get('kid'), str):
+                raise OAuthLoginError
+            keys = await client.get(f'{TELEGRAM_ORIGIN}/.well-known/jwks.json')
+            keys.raise_for_status()
+            key_data = next((key for key in keys.json()['keys'] if key.get('kid') == header['kid']
+                             and key.get('kty') == 'RSA' and key.get('use', 'sig') == 'sig'
+                             and key.get('alg', 'RS256') == 'RS256'), None)
+            if key_data is None:
+                raise OAuthLoginError
+            claims = jwt.decode(token, jwt.PyJWK.from_dict(key_data), algorithms=['RS256'],
+                                issuer=TELEGRAM_ORIGIN, audience=app_id, leeway=10,
+                                options={'require': ['exp', 'iat', 'iss', 'aud', 'sub']})
+            subject = claims['sub']
+            if not isinstance(subject, str) or not subject.isascii() or not 0 < len(subject) <= 255:
+                raise OAuthLoginError
+            audience = claims['aud']
+            if ('azp' in claims and claims['azp'] != app_id
+                    or isinstance(audience, list) and len(audience) > 1 and claims.get('azp') != app_id):
+                raise OAuthLoginError
+    except (httpx.HTTPError, jwt.PyJWTError, KeyError, TypeError, ValueError, AttributeError) as error:
+        raise OAuthLoginError from error
+    name = claims.get('given_name') or claims.get('name')
+    return subject, (name.strip()[:20] or 'Игрок Telegram') if isinstance(name, str) else 'Игрок Telegram'
+
+
 def oauth_redirect(provider, path, status=None):
     location = f'{path}?{provider}={status}' if status else path
     response = RedirectResponse(location, status_code=303, headers={'Referrer-Policy': 'no-referrer'})
@@ -504,8 +556,10 @@ async def oauth_callback(provider: Provider, request: Request, state: str = '', 
     try:
         if provider == 'vk':
             subject, nickname = await vk_user(app_id, callback, code, device_id, state, flow['verifier'])
-        else:
+        elif provider == 'yandex':
             subject, nickname = await yandex_user(app_id, secret, code, flow['verifier'])
+        else:
+            subject, nickname = await telegram_user(app_id, secret, callback, code, flow['verifier'])
     except OAuthLoginError:
         return oauth_redirect(provider, back, 'failed')
 
@@ -534,7 +588,7 @@ async def oauth_callback(provider: Provider, request: Request, state: str = '', 
             if account_id is None:
                 account_id = await connection.fetchval('''
                     INSERT INTO accounts (username, nickname) VALUES ($1, $2) RETURNING id
-                ''', f'{provider}_' + secrets.token_hex(8), nickname)
+                ''', ('tg_' if provider == 'telegram' else f'{provider}_') + secrets.token_hex(8), nickname)
                 await connection.execute("INSERT INTO account_identities (provider, subject, account_id) VALUES ($1, $2, $3)", provider, subject, account_id)
             else:
                 account = await connection.fetchval('SELECT id FROM accounts WHERE id = $1 FOR UPDATE', account_id)

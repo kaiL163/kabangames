@@ -17,6 +17,7 @@ const AccountContext = createContext(null)
 const PROVIDERS = [
   {id: 'vk', name: 'ВК'},
   {id: 'yandex', name: 'Яндекс ID'},
+  {id: 'telegram', name: 'Telegram'},
 ]
 const OAUTH_ERRORS = {
   expired: 'Срок входа истёк. Попробуйте ещё раз.',
