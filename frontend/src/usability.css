@@ -27,6 +27,11 @@
 .game-page{padding-bottom:93px}
 .tt-wrap{padding-bottom:100px}
 .detective-app{padding-bottom:80px}
+.lobby-invite-actions{display:flex;flex-wrap:wrap;gap:8px}
+.lobby-invite-actions .outline-button{margin:0}
+.lobby-people .player-row>strong{min-width:0;overflow-wrap:anywhere}
+.site-header nav .header-room-link{white-space:nowrap}
+.room-box{max-height:min(90vh,calc(100dvh - 24px));overflow-wrap:anywhere}
 
 @media(max-width:700px){
   .game-bar{justify-content:space-between}
@@ -43,6 +48,22 @@
   .camera-tools .camera-publisher-bar{gap:7px}
   .camera-tools .camera-publisher-bar .my-camera-icon{display:none}
   .camera-tools .camera-publisher-bar strong{font-size:11px}
+  .page-shell{padding:24px 16px 80px}
+  .join-panel{padding:22px;margin:18px auto}
+  .join-panel input,.tt-app input,.tt-app select,.tt-chat-form textarea{font-size:16px}
+  .lobby-heading{grid-template-columns:minmax(0,1fr);gap:20px}
+  .lobby-heading h1,.join-panel h1{font-size:clamp(34px,10vw,52px)}
+  .lobby-people,.standalone-setup{padding:16px}
+  .lobby-people .player-row .player-camera-placeholder{display:none}
+  .lobby-section h2{font-size:clamp(30px,8.5vw,48px);overflow-wrap:anywhere}
+  .room-box{padding:18px;border-radius:18px}
+  .room-box h2{font-size:clamp(26px,7.5vw,34px)}
+  .round-settings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .round-settings button{min-width:0}
+  .tt-title{flex-wrap:wrap}
+  .tt-wrap{padding-bottom:90px}
+  .tt-actions label{min-width:min(100%,150px)}
+  .tt-chat-form textarea{min-width:0;flex-basis:100%}
 }
 @media(max-width:500px){
   .cn-app{scrollbar-gutter:auto}
@@ -52,10 +73,22 @@
   .cn-board.columns-6 .cn-card{min-height:69px}
 }
 @media(max-width:480px){
-  .site-header{gap:8px}
+  .site-header{gap:8px;padding-inline:12px}
   .site-header nav{gap:8px}
   .site-header nav .pill{white-space:nowrap}
   .site-header .kaban-logo{gap:5px}
   .site-header .kaban-logo img{width:34px;height:34px}
   .site-header .kaban-logo .brand-name{font-size:14px}
+  .account-page .account-page-nav{gap:6px}
+  .account-page-nav .back-link{font-size:12px;padding:8px 9px}
+  .account-panel .account-social-list{gap:5px}
+  .account-social-list a{flex:0 1 78px;min-width:0;flex-direction:column;gap:4px;min-height:54px;padding:5px 2px;font-size:11px}
+  .account-social-icon{width:22px;height:22px}
+  .hero h1{font-size:clamp(36px,12.4vw,54px)}
+}
+@media(max-width:360px){
+  .site-header .kaban-logo img{width:28px;height:28px}
+  .site-header .kaban-logo .brand-name{font-size:12px}
+  .site-header nav{gap:6px}
+  .account-social-list a{flex-basis:68px}
 }

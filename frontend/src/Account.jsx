@@ -14,10 +14,11 @@ const avatars = {
 }
 
 const AccountContext = createContext(null)
+const ACCOUNT_PREVIEW_KEY = 'kaban-account-avatar'
 const PROVIDERS = [
-  {id: 'vk', name: 'ВК'},
-  {id: 'yandex', name: 'Яндекс ID'},
-  {id: 'telegram', name: 'Telegram'},
+  {id: 'vk', name: 'ВК', icon: 'VK'},
+  {id: 'yandex', name: 'Яндекс ID', icon: 'Я'},
+  {id: 'telegram', name: 'Telegram', icon: '➤'},
 ]
 const OAUTH_ERRORS = {
   expired: 'Срок входа истёк. Попробуйте ещё раз.',
@@ -44,6 +45,14 @@ export function AccountProvider({children}) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [providers, setProviders] = useState({})
+  const [previewAvatar] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(ACCOUNT_PREVIEW_KEY)
+      return Object.hasOwn(avatars, saved) ? saved : null
+    } catch {
+      return null
+    }
+  })
   useEffect(() => {
     let active = true
     accountRequest('me').then(value => {
@@ -58,7 +67,16 @@ export function AccountProvider({children}) {
     }).catch(() => {})
     return () => {active = false}
   }, [])
-  return <AccountContext.Provider value={{profile, setProfile, loading, loadError, providers}}>{children}</AccountContext.Provider>
+  useEffect(() => {
+    if (loading || loadError) return
+    try {
+      if (profile) sessionStorage.setItem(ACCOUNT_PREVIEW_KEY, profile.avatar)
+      else sessionStorage.removeItem(ACCOUNT_PREVIEW_KEY)
+    } catch {
+      // Session storage is optional. The server session still works.
+    }
+  }, [loading, loadError, profile])
+  return <AccountContext.Provider value={{profile, setProfile, loading, loadError, providers, previewAvatar}}>{children}</AccountContext.Provider>
 }
 
 export function useAccount() {
@@ -71,23 +89,40 @@ export function Avatar({id, fallback = '☺'}) {
 }
 
 export function AccountLink({game = false}) {
-  const {profile, loading} = useAccount()
-  if (loading) return null
+  const {profile, loading, loadError, previewAvatar} = useAccount()
   const className = game ? 'account-nav game-account-link' : 'account-nav'
-  return profile
-    ? <Link className={className} to="/profile" title={profile.nickname}><Avatar id={profile.avatar}/>Профиль</Link>
+  const showProfile = profile || ((loading || loadError) && previewAvatar)
+  if (loading && !previewAvatar) return <span className={`${className} account-nav-pending`} aria-hidden="true">Аккаунт</span>
+  return showProfile
+    ? <Link className={className} to="/profile" title={profile?.nickname}><Avatar id={profile?.avatar ?? previewAvatar}/>Профиль</Link>
     : <Link className={className} to="/account/login">Аккаунт</Link>
 }
 
 export function AccountPage({mode, returnTo}) {
-  const {profile, loading, loadError} = useAccount()
-  if (loading) return <main className="page-shell"><p>Загружаем аккаунт…</p></main>
+  const {profile, loading, loadError, previewAvatar} = useAccount()
+  if (loading) return <main className="page-shell account-page" aria-busy="true">
+    <AccountNavigation returnTo={returnTo}/>
+    <section className="join-panel account-panel">
+      <h1>{mode === 'profile' ? 'Профиль' : mode === 'register' ? 'Регистрация' : 'Вход'}</h1>
+      <div className="account-profile-summary" role="status">
+        {mode === 'profile' && previewAvatar && <Avatar id={previewAvatar}/>}
+        <span>Проверяем вход…</span>
+      </div>
+    </section>
+  </main>
   if (mode === 'profile' && !profile) {
     return loadError ? <main className="page-shell"><p role="alert">Не удалось загрузить профиль.</p><Link className="back-link" to="/"><span className="link-icon" aria-hidden="true">←</span> На главную</Link></main>
       : <Navigate to="/account/login" replace/>
   }
   if (mode !== 'profile' && profile) return <Navigate to="/profile" replace/>
   return <AccountForm key={mode} mode={mode} returnTo={returnTo}/>
+}
+
+function AccountNavigation({returnTo}) {
+  return <div className="account-page-nav">
+    <Link className="back-link" to="/"><span className="link-icon" aria-hidden="true">←</span> На главную</Link>
+    {returnTo && <Link className="back-link" to={returnTo}>{returnTo.includes('/game/') ? 'Вернуться в игру' : 'Вернуться в лобби'} <span className="link-icon" aria-hidden="true">↗</span></Link>}
+  </div>
 }
 
 function AccountForm({mode, returnTo}) {
@@ -102,6 +137,7 @@ function AccountForm({mode, returnTo}) {
   const [showDeletion, setShowDeletion] = useState(false)
   const editing = mode === 'profile'
   const registering = mode === 'register'
+  const signInProviders = editing ? [] : PROVIDERS.filter(({id}) => providers[id])
 
   async function submit(event) {
     event.preventDefault()
@@ -170,11 +206,8 @@ function AccountForm({mode, returnTo}) {
     updateAccess(path, method, Object.fromEntries(new FormData(event.currentTarget)), notice)
   }
 
-  return <main className="page-shell">
-    <div className="account-page-nav">
-      <Link className="back-link" to="/"><span className="link-icon" aria-hidden="true">←</span> На главную</Link>
-      {returnTo && <Link className="back-link" to={returnTo}>{returnTo.includes('/game/') ? 'Вернуться в игру' : 'Вернуться в лобби'} <span className="link-icon" aria-hidden="true">↗</span></Link>}
-    </div>
+  return <main className="page-shell account-page">
+    <AccountNavigation returnTo={returnTo}/>
     <section className="join-panel account-panel">
       <h1>{editing ? 'Профиль' : registering ? 'Регистрация' : 'Вход'}</h1>
       {editing && <div className="account-profile-summary">
@@ -216,9 +249,17 @@ function AccountForm({mode, returnTo}) {
           {providers[id] && editing && !linked && <form action={`${path}/link`} method="post">
             <button className={buttonClass} type="submit" disabled={busy}>Привязать {name}</button>
           </form>}
-          {providers[id] && !editing && <a className={buttonClass} href={`${path}/start`}>Войти через {name}</a>}
         </React.Fragment>
       })}
+      {signInProviders.length > 0 && <div className="account-social" role="group" aria-label="Вход через соцсети">
+        <span className="account-social-label">Или войти через</span>
+        <div className="account-social-list">
+          {signInProviders.map(({id, name, icon}) => <a key={id} href={`/api/account/oauth/${id}/start`} aria-label={`Войти через ${name}`}>
+            <span className={`account-social-icon account-social-icon-${id}`} aria-hidden="true">{icon}</span>
+            {name}
+          </a>)}
+        </div>
+      </div>}
       {editing && !profile.has_password && <form className="account-manage" onSubmit={event => submitAccess(event, 'me/password', 'POST', 'Пароль установлен.')}>
         <p>Задайте пароль, чтобы входить по логину и при желании отвязать последний внешний аккаунт.</p>
         <label htmlFor="account-new-password">Новый пароль (от 10 символов)</label>
