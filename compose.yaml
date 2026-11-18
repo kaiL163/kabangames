@@ -15,13 +15,6 @@ services:
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
       YANDEX_REDIRECT_URL: ${YANDEX_REDIRECT_URL:-https://games.kaban4ik.xyz/api/account/oauth/yandex/callback}
-      PUBLIC_SITE_URL: ${PUBLIC_SITE_URL:-https://games.kaban4ik.xyz}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-}
     depends_on:
       postgres:
         condition: service_healthy

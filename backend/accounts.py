@@ -47,18 +47,6 @@ CREATE TABLE IF NOT EXISTS account_identities (
     PRIMARY KEY (provider, subject),
     UNIQUE (account_id, provider)
 );
-CREATE TABLE IF NOT EXISTS account_emails (
-    account_id bigint PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-    email text NOT NULL UNIQUE,
-    verified_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS email_verifications (
-    account_id bigint PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
-    email text NOT NULL,
-    digest text NOT NULL UNIQUE,
-    expires_at timestamptz NOT NULL
-);
-CREATE INDEX IF NOT EXISTS email_verifications_expiry ON email_verifications(expires_at);
 '''
 
 

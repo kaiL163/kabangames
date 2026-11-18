@@ -17,7 +17,7 @@ try:
     from .detective import CASE, ANSWERS, EXPLANATION
     from . import quiz as quiz_game
     from . import writing_game
-    from . import party, codenames, tabletop, accounts, email_verification
+    from . import party, codenames, tabletop, accounts
 except ImportError:
     from detective import CASE, ANSWERS, EXPLANATION
     import quiz as quiz_game
@@ -26,7 +26,6 @@ except ImportError:
     import codenames
     import tabletop
     import accounts
-    import email_verification
 
 rooms = {}
 lock = asyncio.Lock()
@@ -62,7 +61,6 @@ async def lifespan(app):
 
 app = FastAPI(title="Kaban Games", lifespan=lifespan)
 app.include_router(accounts.router)
-app.include_router(email_verification.router)
 
 
 @app.middleware('http')
@@ -714,7 +712,6 @@ if static.is_dir():
     @app.get('/create')
     @app.get('/account/login')
     @app.get('/account/register')
-    @app.get('/account/verify-email')
     @app.get('/profile')
     @app.get('/lobby/{code}')
     @app.get('/lobby/{code}/game/{game_id}')

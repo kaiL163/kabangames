@@ -1,5 +1,5 @@
 import React, {createContext, useContext, useEffect, useState} from 'react'
-import {Link, Navigate, useLocation, useNavigate, useSearchParams} from 'react-router-dom'
+import {Link, Navigate, useNavigate, useSearchParams} from 'react-router-dom'
 import './account.css'
 
 const avatars = {
@@ -86,87 +86,6 @@ export function AccountPage({mode}) {
   }
   if (mode !== 'profile' && profile) return <Navigate to="/profile" replace/>
   return <AccountForm key={mode} mode={mode}/>
-}
-
-function EmailSettings() {
-  const [email, setEmail] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [sent, setSent] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    accountRequest('email').then(value => {
-      if (active) setEmail(value)
-    }).catch(() => {
-      if (active) setError('Не удалось загрузить настройки почты.')
-    })
-    return () => { active = false }
-  }, [])
-
-  async function send(event) {
-    event.preventDefault()
-    if (busy) return
-    const data = Object.fromEntries(new FormData(event.currentTarget))
-    setBusy(true)
-    setError('')
-    setSent(false)
-    try {
-      const {pending} = await accountRequest('email/send', 'POST', data)
-      setEmail(previous => ({...previous, pending}))
-      setSent(true)
-    } catch (error) {
-      setError(error.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return <section className="account-manage" aria-labelledby="account-email-heading">
-    <h2 id="account-email-heading">Почта</h2>
-    {email?.verified && <p>Подтверждена: <strong>{email.verified}</strong></p>}
-    {email?.pending && <p role={sent ? 'status' : undefined}>Письмо отправлено на <strong>{email.pending}</strong>. Ссылка действует 30 минут.</p>}
-    {email && !email.enabled && <p>Отправка писем пока недоступна.</p>}
-    {email?.enabled && <form onSubmit={send}>
-      <label htmlFor="account-email">{email.verified ? 'Новый адрес' : 'Адрес электронной почты'}</label>
-      <input id="account-email" name="email" type="email" autoComplete="email" maxLength={254} defaultValue={email.pending || ''} required/>
-      <button className="button" disabled={busy}>{busy ? 'Отправляем…' : email.pending ? 'Отправить новое письмо' : 'Отправить письмо'}</button>
-    </form>}
-    {error && <p className="room-error" role="alert">{error}</p>}
-  </section>
-}
-
-export function VerifyEmailPage() {
-  const location = useLocation()
-  const navigate = useNavigate()
-  const token = new URLSearchParams(location.hash.slice(1)).get('token') || ''
-  const [busy, setBusy] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
-  const [error, setError] = useState('')
-  const valid = /^[A-Za-z0-9_-]{43}$/.test(token)
-
-  async function confirmEmail() {
-    setBusy(true)
-    setError('')
-    try {
-      await accountRequest('email/verify', 'POST', {token})
-      setConfirmed(true)
-      navigate(location.pathname, {replace: true})
-    } catch (error) {
-      setError(error.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return <main className="page-shell"><section className="join-panel account-panel">
-    <h1>Подтверждение почты</h1>
-    {confirmed ? <p role="status">Почта подтверждена.</p>
-      : valid ? <button type="button" className="button" disabled={busy} onClick={confirmEmail}>Подтвердить почту</button>
-        : <p>Откройте ссылку из письма или запросите новое письмо в профиле.</p>}
-    {error && <p className="room-error" role="alert">{error}</p>}
-    <p><Link className="back-link" to="/profile">Открыть профиль ↗</Link></p>
-  </section></main>
 }
 
 function AccountForm({mode}) {
@@ -298,7 +217,6 @@ function AccountForm({mode}) {
         <input id="account-new-password" name="password" type="password" autoComplete="new-password" minLength={10} maxLength={128} required/>
         <button className="button" disabled={busy}>Установить пароль</button>
       </form>}
-      {editing && <EmailSettings/>}
       {editing ? <button type="button" className="text-button account-secondary" disabled={busy} onClick={logout}>Выйти из аккаунта</button>
         : <Link className="back-link account-secondary" to={registering ? '/account/login' : '/account/register'}>{registering ? 'Уже есть аккаунт? Войти' : 'Создать аккаунт ↗'}</Link>}
       {editing && <div className="account-manage account-danger">
