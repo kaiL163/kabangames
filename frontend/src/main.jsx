@@ -42,7 +42,7 @@ const GAME_NAMES = Object.fromEntries(cards.map(([id, , title]) => [id, title]))
 const NATIVE_ROOM_GAMES = new Set(['codenames', 'boss', 'domination'])
 // Games can opt out of the shared lobby when a standalone-only mode is added.
 const GAME_AVAILABILITY = Object.fromEntries(cards.map(([id])=>[id,{party:!['detective','codenames','boss','domination'].includes(id),standalone:['detective','codenames','boss','domination'].includes(id)}]))
-const UPCOMING_GAMES = [['monopoly','🎲','Монополия','Отдельная комната с полем и настройками партии'],['bunker','🚪','Бункер','Свои роли, обсуждение и голосование'],['hat','🎩','Шляпа','Команды, слова и таймер раунда']]
+const UPCOMING_GAMES = [['monopoly','🎲','Монополия','Отдельная комната с полем и настройками партии'],['bunker','🚪','Бункер','Свои роли, обсуждение и голосование'],['hat','🎩','Шляпа','Команды, слова и таймер раунда'],['colonist','🏝️','Колонист','Торгуйте ресурсами, прокладывайте дороги и развивайте поселения на острове']]
 const PARTY_GAMES = new Set(['croc','truth','twotruths','screenwriter','who','spy','reaction'])
 const QUIZ_GAMES = new Set(['quiz','emoji','truefalse','words','cinema','filmguess','carquiz'])
 const SESSION_KEY = 'kaban-room'
@@ -83,7 +83,7 @@ function readSession(){try{const raw=localStorage.getItem(SESSION_KEY)||sessionS
 function saveSession(value){if(value)localStorage.setItem(SESSION_KEY,JSON.stringify(value));else localStorage.removeItem(SESSION_KEY);sessionStorage.removeItem(SESSION_KEY)}
 function browserId(){let id=localStorage.getItem('kaban-browser-id');if(!id){id=crypto.randomUUID();localStorage.setItem('kaban-browser-id',id)}return id}
 function Logo(){return <div className="logo kaban-logo" aria-label="KABAN GAMES — игры для своих"><img src="/images/kaban-brand-v2.webp" alt="" width="56" height="56"/> <span className="brand-lockup"><span className="brand-name">KABAN <b>GAMES</b></span><span className="brand-tagline">ИГРЫ ДЛЯ СВОИХ</span></span></div>}
-const GAME_COVERS={boss:'/images/boss-boars.webp',codenames:'/images/codenames-boars.webp',detective:'/images/detective-boar.png',domination:'/images/domination-boar.webp',monopoly:'/images/monopoly-boar.webp',hat:'/images/hat-boar.webp',bunker:'/images/bunker-boar.webp'}
+const GAME_COVERS={boss:'/images/boss-boars.webp',codenames:'/images/codenames-boars.webp',detective:'/images/detective-boar.png',domination:'/images/domination-boar.webp',monopoly:'/images/monopoly-boar.webp',hat:'/images/hat-boar.webp',bunker:'/images/bunker-boar.webp',colonist:'/images/colonist-boar.webp'}
 const LOBBY_COVERS=['quiz','croc','truth','who','finish','twotruths','screenwriter','emoji','truefalse','words','cinema','filmguess','carquiz','spy','reaction']
 function GameArtwork({id,icon,standalone=false}){
  const sprite=LOBBY_COVERS.indexOf(id)
