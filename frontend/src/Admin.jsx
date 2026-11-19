@@ -73,7 +73,7 @@ function TesterAccess() {
   </section>
 }
 
-const DEFAULT_BOTS = {boss: 5, codenames: 5, domination: 2, spy: 3}
+const DEFAULT_BOTS = {colonist: 2, boss: 5, codenames: 5, domination: 2, spy: 3}
 
 function LiveTestRooms({games, gameNames}) {
   const [game, setGame] = useState(games.includes('quiz') ? 'quiz' : games[0])
@@ -129,7 +129,7 @@ function LiveTestRooms({games, gameNames}) {
         </select>
       </label>
       <label>Число ботов
-        <input type="number" min="1" max="12" required value={bots} disabled={busy} onChange={event => setBots(event.target.value)}/>
+        <input type="number" min="1" max={game === 'colonist' ? 3 : 12} required value={bots} disabled={busy} onChange={event => setBots(event.target.value)}/>
       </label>
       <button className="button" disabled={busy}>{busy ? 'Подождите…' : 'Открыть тестовое лобби ↗'}</button>
     </form>

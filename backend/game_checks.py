@@ -3,9 +3,9 @@ import time
 from types import SimpleNamespace
 
 try:
-    from . import codenames, party, quiz, spy_game, tabletop, writing_game
+    from . import codenames, colonist, party, quiz, spy_game, tabletop, writing_game
 except ImportError:
-    import codenames, party, quiz, spy_game, tabletop, writing_game
+    import codenames, colonist, party, quiz, spy_game, tabletop, writing_game
 
 
 def check(condition, message):
@@ -185,6 +185,8 @@ def tabletop_check(mode):
 
 
 def simulate(mode, detective_check):
+    if mode == 'colonist':
+        return colonist.check()
     if mode == 'detective':
         return detective_check()
     if mode == 'codenames':

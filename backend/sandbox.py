@@ -8,9 +8,9 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 
 try:
-    from . import codenames, party, quiz, spy_game, tabletop, writing_game
+    from . import codenames, colonist, party, quiz, spy_game, tabletop, writing_game
 except ImportError:
-    import codenames, party, quiz, spy_game, tabletop, writing_game
+    import codenames, colonist, party, quiz, spy_game, tabletop, writing_game
 
 
 TEST_CODE = 'TEST'
@@ -82,6 +82,9 @@ def step(session, seat, detective_step):
     room = session.room
     excluded = {room['host'], session.seats[seat]}
     bots = [token for token in room['players'] if token not in excluded]
+    if (island := room.get('colonist')) and island['phase'] != 'lobby':
+        seats = {seat_id for token in bots if (seat_id := colonist.seat_for(island, token)) is not None}
+        return int(colonist.bot_step(island, seats))
     if room.get('codenames'):
         return step_codenames(room, bots)
     if room.get('tabletop'):

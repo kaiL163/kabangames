@@ -11,13 +11,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Annotated, Literal
 
 try:
     from .detective import CASE, ANSWERS, EXPLANATION
     from . import quiz as quiz_game
     from . import writing_game
-    from . import party, codenames, tabletop, accounts, admin, sandbox
+    from . import party, codenames, tabletop, accounts, admin, sandbox, colonist
 except ImportError:
     from detective import CASE, ANSWERS, EXPLANATION
     import quiz as quiz_game
@@ -28,6 +28,7 @@ except ImportError:
     import accounts
     import admin
     import sandbox
+    import colonist
 
 rooms = {}
 lock = asyncio.Lock()
@@ -90,7 +91,8 @@ async def persist_rooms(request: Request, call_next):
     if request.url.path.startswith(('/api/account/', '/api/admin/')):
         response.headers['Cache-Control'] = 'private, no-store'
         return response
-    if request.method == 'POST' and request.url.path.startswith('/api/') and request.url.path != '/api/state':
+    should_save = request.url.path != '/api/state' or getattr(request.state, 'colonist_moved', False)
+    if request.method == 'POST' and request.url.path.startswith('/api/') and should_save:
         try:
             ROOMS_FILE.parent.mkdir(parents=True, exist_ok=True)
             snapshot = {code: {**room, 'saved_at': time.time()} for code, room in rooms.items()}
@@ -111,6 +113,7 @@ GAME_MODES = {game: {'party': game != 'detective', 'standalone': game == 'detect
 for mode in ('boss','domination'):GAME_MODES[mode]={'party':False,'standalone':True}
 
 GAME_MODES['codenames'] = {'party': False, 'standalone': True}
+GAME_MODES['colonist'] = {'party': False, 'standalone': True}
 
 class Create(BaseModel):
     client_id: str | None = Field(default=None, min_length=20, max_length=128)
@@ -263,6 +266,8 @@ def new_room(token, name, game_id, client_id=None, avatar=None):
         tabletop.setup(room, game_id)
     if game_id == 'codenames':
         codenames.setup(room)
+    if game_id == 'colonist':
+        colonist.setup(room)
     return room
 
 
@@ -308,6 +313,9 @@ async def join(body: Join, request: Request):
             raise HTTPException(400, 'Этот ник уже занят в лобби')
         if len(room['players']) >= (24 if room.get('selected_game')=='domination' else 15):
             raise HTTPException(400, 'Комната заполнена')
+        island = room.get('colonist')
+        if island and (island['phase'] != 'lobby' or len(room['players']) + island['bots'] >= 3):
+            raise HTTPException(409, 'Партия уже началась или все места заняты. Попроси ведущего освободить место до старта.')
         token = secrets.token_urlsafe(32)
         room['players'][token] = {'name': name, 'client_id': body.client_id, 'seen': time.monotonic()}
         room['players'][token]['avatar'] = profile['avatar'] if profile else None
@@ -315,7 +323,7 @@ async def join(body: Join, request: Request):
         return {'code': body.code.upper(), 'token': token, 'host': False}
 
 @app.post('/api/state')
-async def state(body: Credentials):
+async def state(body: Credentials, request: Request):
     async with lock:
         prune()
         room = get_room(body.code)
@@ -325,10 +333,68 @@ async def state(body: Credentials):
             state = {k: v for k, v in state.items() if k not in ('host_prompt', 'host_answer')}
         result = {'tabletop':tabletop.view(room,body.token), 'codenames': codenames.view(room, body.token), 'selected_game': room.get('selected_game'), 'is_host': is_host, 'my_camera': (room.setdefault('host_camera_id', secrets.token_hex(12)) if is_host else room['players'][body.token].setdefault('camera_id', secrets.token_hex(12))), 'host_camera': room.setdefault('host_camera_id', secrets.token_hex(12)), 'host_name': room['host_name'], 'host_avatar': room.get('host_avatar'), 'video': {'code': body.code.upper(), 'room': room['video_room'], 'password': room['video_password'], 'name': room['host_name'] if is_host else room['players'][body.token]['name']}, 'players': [{'id': p.setdefault('public_id', secrets.token_urlsafe(12)), 'camera_id': p.setdefault('camera_id', secrets.token_hex(12)), 'name': p['name'], 'avatar': p.get('avatar'), 'ready': room['ready'].get(token, False), 'connected': time.monotonic() - p['seen'] < 20} for token, p in room['players'].items()], 'connected_count': sum(time.monotonic() - p['seen'] < 20 for p in room['players'].values()), 'ready_count': sum(room['ready'].get(t, False) and time.monotonic() - p['seen'] < 20 for t, p in room['players'].items()), 'me_ready': True if is_host else room['ready'].get(body.token, False), 'reactions': room['reactions'][-20:], 'scores': merged_scores(room), 'state': state, 'detective': detective_view(room['detective']), 'quiz': quiz_game.view(room, body.token), 'writing': writing_game.view(room, body.token), 'party': party.view(room, body.token), 'active_game': room['selected_game'] if room.get('selected_game') in ('boss','domination') else 'codenames' if room.get('selected_game') == 'codenames' else 'detective' if room['detective'] is not None else (room['quiz']['id'] if room.get('quiz') else ('finish' if room.get('writing') else (room['party']['id'] if room.get('party') else (state['game_id'] if state else None))))}
         test = sandbox.active_room.get()
+        if (island := room.get('colonist')):
+            request.state.colonist_moved = colonist.bot_step(island, paced=True)
+            result.update(colonist=colonist.view(room, body.token), active_game='colonist')
         if test is not None:
             result['sandbox_participants'] = test.participants()
             result['video'] = None
         return result
+
+
+class ColonistAction(Credentials):
+    instance: str = Field(max_length=40)
+    rev: int = Field(ge=0)
+    action: Literal['add_bot', 'remove_bot', 'start', 'reset', 'home', 'road', 'city', 'roll',
+                    'discard', 'robber', 'steal', 'bank', 'offer', 'accept', 'decline',
+                    'cancel', 'buy', 'play', 'finish_roads', 'end']
+    target: int | None = Field(default=None, ge=0, le=100)
+    give: str = Field(default='', max_length=12)
+    take: str = Field(default='', max_length=12)
+    give_count: int = Field(default=1, ge=1, le=19)
+    take_count: int = Field(default=1, ge=1, le=19)
+    offer_id: str = Field(default='', max_length=16)
+    counts: dict[Literal['wood', 'brick', 'wool', 'grain', 'ore'], Annotated[int, Field(ge=0, le=19)]] = Field(default_factory=dict)
+    card: str = Field(default='', max_length=12)
+    resources: list[Literal['wood', 'brick', 'wool', 'grain', 'ore']] = Field(default_factory=list, max_length=2)
+
+
+@app.post('/api/colonist/action')
+async def colonist_action(body: ColonistAction):
+    async with lock:
+        room = get_room(body.code)
+        host = authenticate(room, body.token)
+        require_game(room, 'colonist')
+        game = room['colonist']
+        if body.instance != game['instance'] or body.rev != game['rev']:
+            raise HTTPException(409, 'Поле обновилось. Повтори действие.')
+        try:
+            if body.action in ('add_bot', 'remove_bot', 'start', 'reset'):
+                colonist.require(host, 'Настройки меняет только ведущий.')
+                if body.action == 'reset':
+                    colonist.require(game['phase'] == 'finished', 'Партия ещё не закончена.')
+                    bots = game['bots']
+                    colonist.setup(room)
+                    room['colonist']['bots'] = bots
+                else:
+                    colonist.require(game['phase'] == 'lobby', 'Партия уже идёт.')
+                    if body.action == 'start':
+                        colonist.require(all(room['ready'].get(token) for token in room['players']),
+                                         'Дождись готовности игроков или освободи ушедшие места.')
+                        colonist.start(room)
+                    elif body.action == 'add_bot':
+                        colonist.require(len(room['players']) + game['bots'] < 3, 'Все места заняты.')
+                        game['bots'] += 1
+                    else:
+                        colonist.require(game['bots'] > 0, 'В комнате нет ботов.')
+                        game['bots'] -= 1
+                    game['rev'] += 1
+            else:
+                colonist.require(game['phase'] != 'lobby', 'Сначала запусти партию.')
+                colonist.move(game, colonist.seat_for(game, body.token), body.model_dump())
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        return {'ok': True}
 
 
 class ManagePlayer(Credentials):
@@ -348,6 +414,8 @@ async def manage_player(body: ManagePlayer):
             try: tabletop.transfer_host(room, target)
             except ValueError as error: raise HTTPException(409, str(error))
         player = room['players'].pop(target)
+        if body.action == 'kick':
+            colonist.replace_player(room.get('colonist'), target)
         if room.get('codenames', {}).get('phase') == 'setup': room['codenames']['seats'].pop(target, None)
         if body.action=='kick' and room.get('tabletop', {}).get('phase') == 'setup': room['tabletop']['members'].pop(target,None)
         room['ready'].pop(target, None)
@@ -808,6 +876,8 @@ async def list_sandboxes(request: Request, profile: admin.Admin):
 async def create_sandbox(body: SandboxCreate, request: Request, profile: admin.Admin):
     if body.game not in GAME_MODES:
         raise HTTPException(404, 'Режим не найден.')
+    if body.game == 'colonist' and body.bots > 3:
+        raise HTTPException(400, 'В Колонисте можно добавить до трёх ботов.')
     async with lock:
         room = new_room(secrets.token_urlsafe(32), profile['nickname'], body.game, avatar=profile['avatar'])
         return sandbox.create(request.state.account_id, body.game, body.bots, room).summary()
@@ -850,6 +920,7 @@ async def leave(body: Credentials):
             del (rooms if test is None else test.rooms)[body.code.upper()]
         else:
             room['players'].pop(body.token, None)
+            colonist.replace_player(room.get('colonist'), body.token)
             if room.get('codenames', {}).get('phase') == 'setup': room['codenames']['seats'].pop(body.token, None)
             if room.get('tabletop', {}).get('phase') == 'setup': room['tabletop']['members'].pop(body.token,None)
             room['ready'].pop(body.token, None)
