@@ -14,6 +14,7 @@ COST = {
     'card': {'wool': 1, 'grain': 1, 'ore': 1},
 }
 LIMIT = {'road': 15, 'home': 5, 'city': 4}
+WIN_POINTS = 10
 DECK = ['knight'] * 14 + ['roads', 'plenty', 'monopoly'] * 2 + ['point'] * 5
 
 
@@ -389,9 +390,9 @@ def move(game, seat, body):
                         phase='roll', offer=None, card_used=False)
         else:
             raise ValueError('Это действие сейчас недоступно.')
-    if not game['phase'].startswith('setup') and points(game, game['active'], True) >= 10:
+    if not game['phase'].startswith('setup') and points(game, game['active'], True) >= WIN_POINTS:
         game.update(phase='finished', winner=game['active'], offer=None)
-        log(game, f"{game['players'][game['active']]['name']} набирает 10 очков и побеждает.")
+        log(game, f"{game['players'][game['active']]['name']} набирает {WIN_POINTS} очков и побеждает.")
     if (offer := game['offer']) and not can_pay(game['players'][offer['from']]['hand'], offer['give']):
         game['offer'] = None
     game['rev'] += 1
@@ -417,6 +418,7 @@ def view(room, token):
     if not game:
         return None
     public = {key: game[key] for key in ('phase', 'instance', 'rev', 'bots')}
+    public['chat'] = [{k: item[k] for k in ('id', 'name', 'text')} for item in game.get('chat', [])]
     if game['phase'] == 'lobby':
         return public
     seat = seat_for(game, token)
@@ -434,8 +436,25 @@ def view(room, token):
         discard=game['pending'].get(str(seat), 0), pending=len(game['pending']),
         legal=available(game, seat),
         rates={r: rate(game, seat, r) for r in RESOURCES} if own else {},
+        cost={**COST, 'buy': COST['card']},
+        pieces={kind: cap-(sum(owner == seat for owner in game['roads'].values()) if kind == 'road'
+                            else sum(owner == seat and piece == kind for owner, piece in game['homes'].values()))
+                for kind, cap in LIMIT.items()} if own else {},
+        target=WIN_POINTS,
     )
     return public
+
+
+def send_chat(game, token, name, text):
+    text = text.strip()
+    require(bool(text), 'Напиши сообщение.')
+    now = time.time()
+    previous = game.setdefault('chat_at', {}).get(token, 0)
+    require(now-previous >= 1, 'Подожди секунду перед следующим сообщением.')
+    game['chat_at'][token] = now
+    chat = game.setdefault('chat', [])
+    chat.append({'id': secrets.token_hex(8), 'name': name, 'text': text})
+    del chat[:-60]
 
 
 def site_value(game, vertex):

@@ -347,7 +347,7 @@ class ColonistAction(Credentials):
     rev: int = Field(ge=0)
     action: Literal['add_bot', 'remove_bot', 'start', 'reset', 'home', 'road', 'city', 'roll',
                     'discard', 'robber', 'steal', 'bank', 'offer', 'accept', 'decline',
-                    'cancel', 'buy', 'play', 'finish_roads', 'end']
+                    'cancel', 'buy', 'play', 'finish_roads', 'end', 'chat']
     target: int | None = Field(default=None, ge=0, le=100)
     give: str = Field(default='', max_length=12)
     take: str = Field(default='', max_length=12)
@@ -357,6 +357,7 @@ class ColonistAction(Credentials):
     counts: dict[Literal['wood', 'brick', 'wool', 'grain', 'ore'], Annotated[int, Field(ge=0, le=19)]] = Field(default_factory=dict)
     card: str = Field(default='', max_length=12)
     resources: list[Literal['wood', 'brick', 'wool', 'grain', 'ore']] = Field(default_factory=list, max_length=2)
+    text: str = Field(default='', max_length=240)
 
 
 @app.post('/api/colonist/action')
@@ -366,10 +367,13 @@ async def colonist_action(body: ColonistAction):
         host = authenticate(room, body.token)
         require_game(room, 'colonist')
         game = room['colonist']
-        if body.instance != game['instance'] or body.rev != game['rev']:
+        if body.instance != game['instance'] or (body.action != 'chat' and body.rev != game['rev']):
             raise HTTPException(409, 'Поле обновилось. Повтори действие.')
         try:
-            if body.action in ('add_bot', 'remove_bot', 'start', 'reset'):
+            if body.action == 'chat':
+                name = room['host_name'] if host else room['players'][body.token]['name']
+                colonist.send_chat(game, body.token, name, body.text)
+            elif body.action in ('add_bot', 'remove_bot', 'start', 'reset'):
                 colonist.require(host, 'Настройки меняет только ведущий.')
                 if body.action == 'reset':
                     colonist.require(game['phase'] == 'finished', 'Партия ещё не закончена.')

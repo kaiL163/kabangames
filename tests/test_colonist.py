@@ -111,3 +111,15 @@ class IslandRoomTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(public['players']), 4)
                 self.assertEqual(public['active'], 1)
                 self.assertEqual(len(public['homes']), 2)
+                self.assertEqual(public['pieces'], {'road': 14, 'home': 4, 'city': 4})
+                self.assertEqual(public['cost']['city'], {'grain': 2, 'ore': 3})
+                chat = await client.post('/api/colonist/action', json={
+                    **credentials, 'instance': public['instance'], 'rev': 0, 'action': 'chat',
+                    'text': '  Обменяемся деревом?  ',
+                })
+                self.assertEqual(chat.status_code, 200, chat.text)
+                after_chat = await view()
+                self.assertEqual(after_chat['rev'], public['rev'])
+                message = after_chat['chat'][0]
+                self.assertEqual((message['name'], message['text']), ('Тестер', 'Обменяемся деревом?'))
+                self.assertNotIn('token', message)

@@ -1,14 +1,15 @@
-import React, {useState} from 'react'
+import React, {useLayoutEffect, useRef, useState} from 'react'
 import {Link} from 'react-router-dom'
 import {AccountLink} from './Account.jsx'
 import {PlayerName} from './RoomPeople.jsx'
 import {CaseDialog} from './DetectiveUI.jsx'
+import {Icon, Landmarks} from './ColonistArt.jsx'
 import './colonist.css'
 
 const RESOURCE = {
-  wood: ['Дерево', '🌲', '#417251'], brick: ['Кирпич', '🧱', '#b66a4a'],
-  wool: ['Шерсть', '🐑', '#7b955c'], grain: ['Зерно', '🌾', '#c69c50'],
-  ore: ['Руда', '🪨', '#717e89'], desert: ['Пустыня', '☀', '#aa8c69'],
+  wood: ['Дерево', '🌲', '#3c7359'], brick: ['Кирпич', '🧱', '#ae6349'],
+  wool: ['Шерсть', '🐑', '#8b9960'], grain: ['Зерно', '🌾', '#b78c46'],
+  ore: ['Руда', '🪨', '#6e828b'], desert: ['Пустыня', '☀', '#aa8b62'],
 }
 const resources = Object.keys(RESOURCE).filter(key => key !== 'desert')
 const COLORS = ['#ffe162', '#ff8167', '#79d7ff', '#d8aaff']
@@ -34,9 +35,11 @@ function ResourceSelect({label, value, onChange}) {
   </select></label>
 }
 
-function ResourceSet({items}) {
-  return <div className="isle-resources">{resources.map(r => <div key={r}>
-    <span aria-hidden="true">{RESOURCE[r][1]}</span><strong>{items[r]}</strong><small>{RESOURCE[r][0]}</small>
+function ResourceSet({items, highlighted, compact = false}) {
+  return <div className={`isle-resources${compact ? ' is-compact' : ''}`}>{resources.map(r => <div key={r}
+    className={highlighted?.[r] ? 'is-highlighted' : undefined} style={{'--resource':RESOURCE[r][2]}}
+    title={RESOURCE[r][0]}>
+    <Icon kind={r}/><strong>{items[r]}</strong><small>{RESOURCE[r][0]}</small>
   </div>)}</div>
 }
 
@@ -51,45 +54,64 @@ function spot(action, target, label, selected, onPick, busy) {
   }
 }
 
-function IslandBoard({game, mode, selected, onPick, onConfirm, busy}) {
+function IslandBoard({game, mode, selected, onPick, onConfirm, onCancel, busy}) {
   const [zoom, setZoom] = useState(false)
+  const mapScroll = useRef(null)
+  useLayoutEffect(() => {
+    const area = mapScroll.current
+    if (zoom) area.scrollLeft = (area.scrollWidth-area.clientWidth)/2
+  }, [zoom])
   const {vertices, edges, tiles, homes, roads, ports, robber, legal} = game
   const choices = new Set(legal[mode] || [])
   const rolled = game.dice?.reduce((a, b) => a+b, 0)
   return <section className="isle-map">
-    <div className="isle-map-title"><div><strong>Остров</strong><small>{BUILD[mode] ? ` · ${BUILD[mode]}` : ''}</small></div>
+    <div className="isle-map-title"><div><strong>{BUILD[mode] || 'Остров'}</strong></div>
       <div className="isle-buttons">
+        {selected && <button className="isle-button" aria-label="Снять выбор на поле" onClick={onCancel}>×</button>}
         {selected && <button className="isle-button is-primary" disabled={busy} onClick={onConfirm}>Подтвердить</button>}
         <button className="isle-button" aria-pressed={zoom} onClick={() => setZoom(!zoom)}>{zoom ? 'Уменьшить' : 'Приблизить'}</button>
       </div>
     </div>
-    <div className={zoom ? 'isle-map-scroll is-zoomed' : 'isle-map-scroll'} tabIndex={zoom ? 0 : undefined}>
-      <svg className="isle-field" viewBox="-266 -231 532 462" role="group" aria-label="Игровое поле">
+    <div ref={mapScroll} className={zoom ? 'isle-map-scroll is-zoomed' : 'isle-map-scroll'} tabIndex={zoom ? 0 : undefined}>
+      <svg className="isle-field" viewBox="-266 -220 532 440" role="group" aria-label="Игровое поле">
         <defs>
-          <pattern id="isle-ripple" width="34" height="25" patternUnits="userSpaceOnUse"><path d="M2 8q5 4 10 0m7 12q5 4 10 0" fill="none" stroke="#8ccdcb" strokeOpacity=".18"/></pattern>
+          <pattern id="isle-ripple" width="44" height="37" patternUnits="userSpaceOnUse"><path d="M2 8q5 4 10 0m11 16q5 4 10 0M9 34h4" fill="none" stroke="#8ccdcb" strokeOpacity=".2"/></pattern>
+          <linearGradient id="isle-relief" x2="0" y2="1"><stop stopColor="#fff" stopOpacity=".17"/><stop offset="1" stopColor="#162720" stopOpacity=".17"/></linearGradient>
         </defs>
-        <rect x="-266" y="-231" width="532" height="462" fill="url(#isle-ripple)"/>
+        <rect x="-266" y="-220" width="532" height="440" fill="url(#isle-ripple)"/>
+        <g className="isle-shore" aria-hidden="true">{tiles.map((tile, index) => <polygon key={index} points={tile.v.map(i => vertices[i].join(',')).join(' ')}/>)}</g>
         {tiles.map(({v, x, y, resource, number}, index) => {
-          const [name, icon, color] = RESOURCE[resource]
+          const [name,, color] = RESOURCE[resource]
+          const shape = v.map(i => vertices[i].join(',')).join(' ')
+          const pips = 6-Math.abs(7-number)
           const props = mode === 'robber' && choices.has(index)
             ? spot(mode, index, `Переместить разбойника: ${name} ${number ?? ''}, участок ${index+1}`, selected, onPick, busy) : {}
           const producing = game.phase === 'action' && index !== robber && number === rolled
           return <g key={index} className={`isle-tile${props.role ? ' is-legal' : ''}${producing ? ' is-producing' : ''}`} {...props}>
-            <polygon points={v.map(i => vertices[i].join(',')).join(' ')} fill={color}/>
-            <text x={x} y={y-5} className="isle-terrain">{icon}</text>
-            {number && <g><rect x={x-13} y={y+4} width="26" height="22" rx="7" fill="#fff2ce"/>
-              <text x={x} y={y+20} className={number === 6 || number === 8 ? 'isle-number is-hot' : 'isle-number'}>{number}</text></g>}
-            {index === robber && <g><circle cx={x+22} cy={y-7} r="10" fill="#192830" stroke="#fff0c4" strokeWidth="2"/>
-              <text x={x+22} y={y-2} className="isle-robber">⛔</text></g>}
+            <polygon className="isle-land" points={shape} fill={color}/>
+            <polygon points={shape} fill="url(#isle-relief)" className="isle-land-relief"/>
+            <Landmarks resource={resource} x={x} y={y}/>
+            {number && <g className={number === 6 || number === 8 ? 'isle-token is-hot' : 'isle-token'}>
+              <circle cx={x} cy={y+12} r="14"/><text x={x} y={y+15}>{number}</text>
+              {Array.from({length:pips}, (_, i) => <circle className="isle-pip" key={i} cx={x+(i-(pips-1)/2)*3.1} cy={y+20} r="1.05"/>)}
+            </g>}
+            {index === robber && <g className="isle-bandit" transform={`translate(${x+23},${y-8})`}>
+              <path d="M-8 8v-3l3-5-1-5 6-4 6 4-1 5 3 5v3Z"/><path d="M-3-2h6"/>
+            </g>}
           </g>
         })}
         {Object.entries(ports).map(([edge, resource]) => {
           const [a, b] = edges[edge].map(i => vertices[i])
           const x = (a[0]+b[0])/2, y = (a[1]+b[1])/2
           const k = 23/Math.hypot(x, y)
-          return <g className="isle-port" key={edge} transform={`translate(${x*(1+k)},${y*(1+k)})`}>
-            <rect x="-17" y="-8" width="34" height="16" rx="7"/>
-            <text y="4">{resource === 'any' ? '3:1' : `${RESOURCE[resource][1]} 2:1`}</text>
+          const px = x*(1+k), py = y*(1+k)
+          return <g className="isle-port" key={edge}>
+            <path d={`M${a.join(' ')} L${px} ${py} L${b.join(' ')}`}/>
+            <g transform={`translate(${px},${py})`}>
+              <rect x="-17" y="-8" width="34" height="16" rx="5"/>
+              {resource !== 'any' && <svg x="-14" y="-6" width="12" height="12"><Icon kind={resource}/></svg>}
+              <text x={resource === 'any' ? 0 : 6} y="4">{resource === 'any' ? '3:1' : '2:1'}</text>
+            </g>
           </g>
         })}
         {Object.entries(roads).map(([edge, seat]) => {
@@ -208,14 +230,81 @@ function IslandLobby({game, room, data, act, onReady, onManage, busy}) {
   </div>
 }
 
+function CostStrip({cost, hand}) {
+  return <span className="isle-cost">{Object.entries(cost).map(([r, count]) => <span key={r}
+    className={hand?.[r] < count ? 'is-short' : undefined} style={{'--resource':RESOURCE[r][2]}}
+    title={`${RESOURCE[r][0]} × ${count}`} aria-label={`${RESOURCE[r][0]}: ${count}`}>
+    <Icon kind={r}/><b>{count}</b></span>)}</span>
+}
+
+function ActionTile({icon, label, onClick, disabled, selected, supply, cost, hand, primary}) {
+  const costLabel = cost && Object.entries(cost).map(([r, count]) => `${RESOURCE[r][0]} × ${count}`).join(', ')
+  return <button type="button" className={`isle-action${primary ? ' is-primary' : ''}`}
+    aria-label={label} aria-description={costLabel} aria-disabled={disabled || undefined} aria-pressed={selected} onClick={() => {if (!disabled) onClick()}}>
+    {supply !== undefined && <small className="isle-supply" title="Доступно фигур">{supply}</small>}
+    <Icon kind={icon}/><strong>{label}</strong>
+    {cost && <CostStrip cost={cost} hand={hand}/>}
+  </button>
+}
+
+function IslandChat({chat, act, busy}) {
+  const [draft, setDraft] = useState('')
+  return <>
+    <ol className="isle-log" aria-label="Сообщения комнаты">
+      {chat.length === 0 && <li>Здесь можно обсудить обмен или просто поговорить.</li>}
+      {chat.slice().reverse().map(item => <li key={item.id}><strong>{item.name}</strong><br/>{item.text}</li>)}
+    </ol>
+    <form className="isle-chat-form" onSubmit={async event => {
+      event.preventDefault()
+      if (draft.trim() && await act({action:'chat', text:draft})) setDraft('')
+    }}>
+      <input aria-label="Сообщение" placeholder="Сообщение…" maxLength={240} value={draft} onChange={event => setDraft(event.target.value)}/>
+      <button className="isle-button" disabled={busy || !draft.trim()}>Отправить</button>
+    </form>
+  </>
+}
+
+function MatchSidebar({game, act, busy, finished}) {
+  const [tab, setTab] = useState('log')
+  return <aside className="isle-aside" aria-label="Участники и события партии">
+    <section className="isle-side-panel">
+      <div className="isle-side-title"><h2>Участники</h2><span>Цель · {game.target} очков</span></div>
+      <ul className="isle-scores">{game.players.map((p, i) => <li key={i}
+        className={game.active === i && !finished ? 'is-active' : ''} style={{'--seat':COLORS[i]}}>
+        <div><PlayerName name={p.name} suffix={game.me === i ? ' · Ты' : p.bot ? ' · Бот' : ''}/></div>
+        <strong>{p.points}<small>/{game.target}</small></strong>
+        <small>Ресурсы {p.size} · Развитие {p.cards}</small>
+        {(game.longest === i || game.army === i) &&
+          <small className="isle-award">{[game.longest === i && 'Длинная дорога', game.army === i && 'Большая армия'].filter(Boolean).join(' · ')}</small>}
+      </li>)}</ul>
+    </section>
+    <section className="isle-side-panel">
+      <div className="isle-side-title"><h2>Банк</h2><span>Колода · {game.deck}</span></div>
+      <ResourceSet items={game.bank} compact/>
+    </section>
+    <section className="isle-side-panel isle-feed">
+      <div className="isle-tab-bar" aria-label="События комнаты">
+        <button type="button" aria-pressed={tab === 'log'} onClick={() => setTab('log')}>Журнал</button>
+        <button type="button" aria-pressed={tab === 'chat'} onClick={() => setTab('chat')}>Чат{game.chat.length > 0 && ` · ${game.chat.length}`}</button>
+      </div>
+      {tab === 'log' ? <ol className="isle-log" aria-label="Последние ходы">
+        {game.log.length === 0 && <li>Здесь будут ходы игроков.</li>}
+        {game.log.slice(-20).reverse().map((line, i) => <li key={i}>{line}</li>)}
+      </ol> : <IslandChat chat={game.chat} act={act} busy={busy}/>}
+    </section>
+  </aside>
+}
+
 function IslandMatch({game, room, act, busy}) {
   const [tool, setTool] = useState(null)
   const [pending, setPending] = useState(null)
-  const [trading, setTrading] = useState(false)
+  const [panel, setPanel] = useState(null)
   const myTurn = game.active === game.me
   const finished = game.phase === 'finished'
+  const building = myTurn && game.phase === 'action'
+  const canTrade = game.hand && game.phase === 'action' && (building || game.offer)
   const forced = {setup_home:'home', setup_road:'road', robber:'robber', free_road:'road'}[game.phase]
-  const mode = myTurn && !finished ? (forced ?? (game.phase === 'action' ? tool : null)) : null
+  const mode = myTurn && !finished ? (forced ?? (building && tool && game.legal[tool].length ? tool : null)) : null
   const selected = pending?.action === mode && game.legal[mode]?.includes(pending.target) ? pending : null
   const active = game.players[game.active]?.name
   const status = finished ? `Победа · ${game.players[game.winner].name}`
@@ -223,42 +312,43 @@ function IslandMatch({game, room, act, busy}) {
     : myTurn ? PHASE[game.phase] : `Ходит ${active}`
   return <div className="isle-match">
     <section className="isle-turn">
-      <div><small>{game.phase.startsWith('setup') ? `РАССТАНОВКА · ${game.cursor+1} / ${game.players.length*2}` : `ХОД ${game.turn}`}</small><h2 role="status">{status}</h2></div>
-      {game.dice && <div className="isle-dice" aria-label={`Кубики: ${game.dice.join(' и ')}`}>{game.dice.map((n,i) => <span key={i}>{n}</span>)}</div>}
-      <div className="isle-buttons">
+      <div className="isle-turn-heading"><i style={{background:COLORS[game.active]}}/><div><small>{game.phase.startsWith('setup') ? `РАССТАНОВКА · ${game.cursor+1} / ${game.players.length*2}` : `ХОД ${game.turn}`}{myTurn && !finished ? ' · ТВОЙ ХОД' : ''}</small><h2 role="status">{status}</h2></div></div>
+      {game.dice && game.phase !== 'roll' && <div className="isle-dice" aria-label={`Кубики: ${game.dice.join(' и ')}`}>{game.dice.map((n,i) => <span key={i}>{n}</span>)}</div>}
+      {(game.discard > 0 || game.phase === 'steal' || mode === 'road' && game.phase === 'free_road' || finished && room.host) && <div className="isle-buttons">
+        {game.discard > 0 && <button className="isle-button is-primary" onClick={() => setPanel('discard')}>Сбросить карты</button>}
         {finished && room.host && <button className="isle-button is-primary" disabled={busy} onClick={() => act({action:'reset'})}>Новая партия</button>}
-        {myTurn && game.phase === 'roll' && <button className="isle-button is-primary" disabled={busy} onClick={() => act({action:'roll'})}>Бросить кубики</button>}
-        {myTurn && game.phase === 'action' && <>
-          {['road','home','city'].map(kind => <button className="isle-button" key={kind} title={PRICES[kind]} aria-pressed={mode === kind}
-            disabled={busy || !game.legal[kind].length} onClick={() => {setTool(kind);setPending(null)}}>{BUILD[kind]}</button>)}
-          <button className="isle-button" title={PRICES.buy} disabled={busy || !game.legal.card} onClick={() => act({action:'buy'})}>Карта развития</button>
-          <button className="isle-button" aria-expanded={trading} onClick={() => setTrading(!trading)}>Обмен</button>
-          <button className="isle-button is-primary" disabled={busy} onClick={() => act({action:'end'})}>Завершить ход</button>
-        </>}
         {mode === 'road' && game.phase === 'free_road' && <button className="isle-button" disabled={busy} onClick={() => act({action:'finish_roads'})}>Закончить постройку дорог</button>}
         {myTurn && game.phase === 'steal' && game.legal.steal.map(target => <button className="isle-button" disabled={busy} key={target} onClick={() => act({action:'steal', target})}>{game.players[target].name}</button>)}
-      </div>
+      </div>}
     </section>
-    <div className="isle-main">
-      <IslandBoard game={game} mode={mode} selected={selected} onPick={setPending} busy={busy} onConfirm={async () => {
+    <IslandBoard game={game} mode={mode} selected={selected} onPick={setPending} onCancel={() => setPending(null)} busy={busy} onConfirm={async () => {
         if (await act(selected)) {setPending(null);setTool(null)}
       }}/>
-      {game.hand && <section className="isle-panel"><h2>Твои ресурсы</h2><ResourceSet items={game.hand}/></section>}
-      {game.discard > 0 && <Discard key={game.turn} game={game} action={act} busy={busy}/>}
-      {game.hand && game.phase === 'action' && ((myTurn && trading) || game.offer) && <Trade key={game.turn} game={game} action={act} busy={busy} myTurn={myTurn}/>}
-      <Development game={game} action={act} busy={busy} myTurn={myTurn}/>
-    </div>
-    <aside className="isle-aside">
-      <section className="isle-panel"><h2>Участники</h2><ul className="isle-scores">{game.players.map((p, i) => <li key={i} className={game.active === i && !finished ? 'is-active' : ''}>
-        <div><i style={{background:COLORS[i]}}/><PlayerName name={p.name} suffix={game.me === i ? ' · Ты' : p.bot ? ' · Бот' : ''}/></div>
-        <strong>{p.points} / 10</strong><small>Ресурсы: {p.size} · Развитие: {p.cards}</small>
-        {(game.longest === i || game.army === i) && <small>{[game.longest === i && 'Длинная дорога', game.army === i && 'Большая армия'].filter(Boolean).join(' · ')}</small>}
-      </li>)}</ul></section>
-      <section className="isle-panel"><h2>Банк</h2><ResourceSet items={game.bank}/><p>Карт развития · {game.deck}</p></section>
-      <section className="isle-panel"><h2>Журнал</h2>
-        <ol className="isle-log">{game.log.slice(-12).reverse().map((line,i) => <li key={i}>{line}</li>)}</ol>
-      </section>
-    </aside>
+    <section className="isle-console" aria-label="Ресурсы и действия">
+      {game.hand && <div className="isle-hand">
+        <div className="isle-console-title"><strong>Твои ресурсы</strong><button className="isle-text-button" disabled={game.cards.length === 0} onClick={() => setPanel('development')}>Развитие · {game.cards.length}</button></div>
+        <ResourceSet items={game.hand} highlighted={building ? game.cost[mode] : null}/>
+      </div>}
+      <div className="isle-actions">
+        {['road','home','city'].map(kind => <ActionTile key={kind} icon={kind} label={BUILD[kind]}
+          cost={game.cost[kind]} hand={game.hand} supply={game.pieces[kind]} selected={building && mode === kind}
+          disabled={busy || !building || !game.legal[kind].length} onClick={() => {setTool(kind);setPending(null)}}/>)}
+        <ActionTile icon="buy" label="Купить карту" cost={game.cost.buy} hand={game.hand}
+          disabled={busy || !game.legal.card} onClick={() => act({action:'buy'})}/>
+        <ActionTile icon="trade" label={game.offer && !myTurn ? 'Предложение' : 'Обмен'} disabled={!canTrade} onClick={() => setPanel('trade')}/>
+        {game.phase === 'roll' ? <ActionTile icon="dice" label="Бросить кубики" primary
+          disabled={busy || !myTurn} onClick={() => act({action:'roll'})}/> :
+          <ActionTile icon="end" label="Конец хода" primary disabled={busy || !building} onClick={() => act({action:'end'})}/>}
+      </div>
+    </section>
+    <MatchSidebar game={game} act={act} busy={busy} finished={finished}/>
+    {panel === 'trade' && canTrade && <CaseDialog title="Обмен ресурсами" onClose={() => setPanel(null)}><Trade key={game.turn} game={game} action={act} busy={busy} myTurn={myTurn}/></CaseDialog>}
+    {panel === 'discard' && game.discard > 0 && <CaseDialog title="Сброс ресурсов" onClose={() => setPanel(null)}>
+      <Discard key={game.turn} game={game} action={async fields => {if (await act(fields)) setPanel(null)}} busy={busy}/>
+    </CaseDialog>}
+    {panel === 'development' && <CaseDialog title="Карты развития" onClose={() => setPanel(null)}>
+      {game.cards.length ? <Development game={game} action={async fields => {if (await act(fields)) setPanel(null)}} busy={busy} myTurn={myTurn}/> : <p>Карты развития можно купить в свой ход.</p>}
+    </CaseDialog>}
   </div>
 }
 
@@ -266,9 +356,10 @@ export default function Colonist({game, room, data, onAction, onLeave, onReady, 
   const [rules, setRules] = useState(false)
   const [copied, setCopied] = useState(false)
   const [people, setPeople] = useState(false)
+  const [scoring, setScoring] = useState(false)
   if (!game) return <main className="page-shell">Подключаем Колониста…</main>
   const act = fields => onAction({instance:game.instance, rev:game.rev, ...fields})
-  return <main className="isle-page">
+  return <main className={`isle-page${game.phase === 'lobby' ? ' is-lobby' : ' is-playing'}`}>
     <header className="isle-header">
       <div><Link to="/" className="isle-brand">✳ KABAN GAMES</Link><h1>Колонист</h1></div>
       <div className="isle-buttons">
@@ -277,6 +368,7 @@ export default function Colonist({game, room, data, onAction, onLeave, onReady, 
           try {await navigator.clipboard.writeText(`${window.location.origin}/join?code=${room.code}`);setCopied(true)} catch {setCopied(false)}
         }}>{copied ? 'Ссылка скопирована' : `Код ${room.code} ↗`}</button>}
         <button className="isle-button" onClick={() => setRules(true)}>Как играть</button>
+        <button className="isle-button" onClick={() => setScoring(true)}>Очки</button>
         {room.host && game.phase !== 'lobby' && data.players.length > 0 && <button className="isle-button" onClick={() => setPeople(true)}>Участники</button>}
         <button className="isle-button" onClick={onLeave}>{room.host ? 'Закрыть комнату' : 'Выйти'}</button>
       </div>
@@ -297,6 +389,16 @@ export default function Colonist({game, room, data, onAction, onLeave, onReady, 
       <ul className="isle-seats">{data.players.map(player => <li key={player.id}>
         <PlayerName name={player.name}/><button className="isle-button" disabled={busy} onClick={() => onManage(player, 'kick')}>Исключить</button>
       </li>)}</ul>
+    </CaseDialog>}
+    {scoring && <CaseDialog title="Как набрать очки" onClose={() => setScoring(false)}>
+      <p>Цель партии — <strong>{game.target ?? 10} очков</strong>.</p>
+      <dl className="isle-point-list">
+        <dt>Поселение</dt><dd>+1</dd>
+        <dt>Улучшение поселения до города</dt><dd>+1</dd>
+        <dt>Карта победного очка</dt><dd>+1</dd>
+        <dt>Самая длинная дорога · от 5 звеньев</dt><dd>+2</dd>
+        <dt>Самая большая армия · от 3 рыцарей</dt><dd>+2</dd>
+      </dl>
     </CaseDialog>}
   </main>
 }
