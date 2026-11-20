@@ -6,7 +6,6 @@ export const glyphs = {
   wool: <><path d="M7 17a4 4 0 0 1-2-7 4 4 0 0 1 6-4 4 4 0 0 1 7 3 4 4 0 0 1-1 8Zm2 0v4m7-4v4"/><path d="M18 10l3-2 1 4-3 3"/></>,
   grain: <><path d="m6 21 12-17m-3 6c-4 0-6-2-6-6 4 0 7 2 6 6Zm-4 5c-4 0-6-2-6-6 4 0 7 2 6 6Zm2-2c4 1 7-1 8-4-4-1-7 0-8 4Zm-4 5c4 1 7-1 8-4-4-1-7 0-8 4Z"/></>,
   ore: <><path d="m2 18 5-9 5 9Zm7 0 6-13 7 13Z"/><path d="m12 11 3 1 3-1"/></>,
-  desert: <><circle cx="13" cy="8" r="3"/><path d="M2 18q6-8 12 0 4-4 8 0M2 21h20"/></>,
   road: <><path d="m5 20 7-16h6l-2 16Z"/><path d="m12 18 3-11" strokeDasharray="2 3"/></>,
   home: <><path d="m3 11 9-7 9 7M5 10v10h14V10M10 20v-5h4v5"/></>,
   city: <><path d="M2 20V9h4V5h4v6l6-4 6 4v9ZM7 14v2m8-3v2m3-2v2"/></>,
@@ -22,10 +21,25 @@ export function Icon({kind, className}) {
     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{glyphs[kind]}</svg>
 }
 
-export function Landmarks({resource, x, y}) {
-  return <g className="isle-landmarks" transform={`translate(${x},${y-9})`} aria-hidden="true">
-    <path className="isle-land-etch" d="M-36-7l12 3m-15 13 9 2m4-28 8 2M20-16l12 4M24 8l11-3M16 14l9-1"/>
-    <svg x="-13" y="-18" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">{glyphs[resource]}</svg>
-  </g>
+// Each orientation places its face at the front before the cube is tilted.
+const DIE_FACES = [
+  {turn:'rotateY(0deg)', front:'rotateY(0deg)', pips:[5]},
+  {turn:'rotateY(90deg)', front:'rotateY(-90deg)', pips:[1,9]},
+  {turn:'rotateX(90deg)', front:'rotateX(-90deg)', pips:[1,5,9]},
+  {turn:'rotateX(-90deg)', front:'rotateX(90deg)', pips:[1,3,7,9]},
+  {turn:'rotateY(-90deg)', front:'rotateY(90deg)', pips:[1,3,5,7,9]},
+  {turn:'rotateY(180deg)', front:'rotateY(-180deg)', pips:[1,3,4,6,7,9]},
+]
+
+export function Dice({values, animate}) {
+  return <div className={`isle-dice${animate ? ' is-rolling' : ''}`} role="img" aria-label={`Кубики: ${values.join(' и ')}`}>
+    {values.map((value, index) => <div className="isle-die" key={index} style={{'--face-up':DIE_FACES[value-1].front}}>
+      <div className="isle-die-cube">
+        {DIE_FACES.map(({turn, pips}, face) => <div key={turn} className="isle-die-face" data-main={face+1 === value}
+          style={{'--face-turn':turn}}>
+          {pips.map(pip => <i key={pip} style={{gridArea:`${Math.ceil(pip/3)} / ${(pip-1)%3+1}`}}/>)}
+        </div>)}
+      </div>
+    </div>)}
+  </div>
 }

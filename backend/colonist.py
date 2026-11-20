@@ -387,7 +387,7 @@ def move(game, seat, body):
             game.update(phase=game['resume'], free=0)
         elif kind == 'end' and phase == 'action':
             game.update(active=(seat+1) % len(game['players']), turn=game['turn']+1,
-                        phase='roll', offer=None, card_used=False)
+                        phase='roll', dice=None, offer=None, card_used=False)
         else:
             raise ValueError('Это действие сейчас недоступно.')
     if not game['phase'].startswith('setup') and points(game, game['active'], True) >= WIN_POINTS:
